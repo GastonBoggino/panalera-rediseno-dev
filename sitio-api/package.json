@@ -1,0 +1,10 @@
+{
+  "name": "panalera-sitio-api",
+  "private": true,
+  "type": "module",
+  "description": "Servidor del sitio propio (plan B): catálogo y pedidos contra la API de Tiendanube. Solo DEV.",
+  "scripts": {
+    "test": "node --test tests/*.test.ts",
+    "dev": "wrangler dev --local --port 8788"
+  }
+}

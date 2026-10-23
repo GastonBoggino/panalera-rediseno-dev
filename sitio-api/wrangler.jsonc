@@ -1,0 +1,12 @@
+{
+  // Servidor del sitio propio — SOLO DEV. No publicar sin autorización expresa.
+  "name": "panalera-sitio-api-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "vars": {
+    "TIENDANUBE_STORE_ID": "8415696",
+    "ALLOWED_ORIGINS": "http://localhost:8787,http://127.0.0.1:8787,https://magnificent-kashata-82d1c0.netlify.app",
+    "MINIMO_PEDIDO": "50000"
+  }
+  // Secretos en .dev.vars (no se versiona): TIENDANUBE_ACCESS_TOKEN, TIENDANUBE_USER_AGENT, LINK_SECRET, TURNSTILE_SECRET, CLAVE_INTERNA
+}

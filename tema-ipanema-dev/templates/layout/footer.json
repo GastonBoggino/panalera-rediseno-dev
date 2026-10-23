@@ -1,0 +1,44 @@
+{
+  "type": "footer",
+  "name": "t:names.footer",
+  "sections": {
+    "footer": {
+      "type": "footer",
+      "settings": {
+        "background_color": "#1B2340",
+        "text_color": "#FFFFFF",
+        "vertical_padding": 48,
+        "menus_toggle": true,
+        "footer_payments_show": true,
+        "footer_shipping_show": true,
+        "section_width": "full",
+        "horizontal_padding": 40
+      },
+      "blocks": {
+        "institutional": {
+          "type": "footer-institutional",
+          "settings": {
+            "description": "Pañalera Mayorista · Garay 1249, Rosario. Lun a vie 8–16 h, sábados 9–13 h. Compra mínima $50.000 · Transferencia +5%.",
+            "logo_height": 40,
+            "show_contact": true,
+            "show_social": true
+          }
+        },
+        "menu_1": {
+          "type": "footer-menu",
+          "settings": {
+            "title": "Navegación",
+            "menu": "navigation"
+          }
+        }
+      },
+      "block_order": [
+        "institutional",
+        "menu_1"
+      ]
+    }
+  },
+  "order": [
+    "footer"
+  ]
+}

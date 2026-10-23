@@ -1,0 +1,15 @@
+# Claves y datos locales: NUNCA se suben
+.dev.vars
+.env
+.env.*
+.nuvem
+*.sqlite*
+.wrangler/
+node_modules/
+.DS_Store
+# Páginas generadas (se crean con sitio-maqueta/scripts/generar-paginas.mjs)
+sitio-maqueta/productos/
+sitio-maqueta/categoria/
+sitio-maqueta/sitemap.xml
+sitio-maqueta/robots.txt
+sitio-maqueta/_redirects

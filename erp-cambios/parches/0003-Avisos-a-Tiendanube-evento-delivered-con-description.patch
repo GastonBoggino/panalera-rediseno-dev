@@ -1,0 +1,41 @@
+From e39ce23fea44fd4e213d165f3d90a956440fda4e Mon Sep 17 00:00:00 2001
+From: gaston <gastonboggino1@gmail.com>
+Date: Fri, 23 Oct 2026 09:14:35 -0300
+Subject: [PATCH 3/6] Avisos a Tiendanube: evento delivered con description y
+ address (lo exige la API)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ app/api/tiendanube/statusPush.ts      | 2 +-
+ tests/tiendanube-status-push.test.mjs | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/app/api/tiendanube/statusPush.ts b/app/api/tiendanube/statusPush.ts
+index ec3f21d..e0c52bb 100644
+--- a/app/api/tiendanube/statusPush.ts
++++ b/app/api/tiendanube/statusPush.ts
+@@ -131,7 +131,7 @@ export function liveSender(env: StatusPushEnv, fetchImpl: Fetch = (input, init)
+       case 'delivered': {
+         const fo = await fulfillment(id);
+         // Envío: evento "delivered" después de DISPATCHED. Retiro: no hay despacho, se marca DELIVERED.
+-        if (String(fo.status).toUpperCase() === 'DISPATCHED') await api('POST', `/orders/${id}/fulfillment-orders/${fo.id}/tracking-events`, { status: 'delivered', happened_at: new Date().toISOString() });
++        if (String(fo.status).toUpperCase() === 'DISPATCHED') await api('POST', `/orders/${id}/fulfillment-orders/${fo.id}/tracking-events`, { status: 'delivered', description: 'Pedido entregado al cliente', address: 'Domicilio del cliente', happened_at: new Date().toISOString() });
+         else await api('PATCH', `/orders/${id}/fulfillment-orders/${fo.id}`, { status: 'DELIVERED' });
+         await api('POST', `/orders/${id}/close`, {});
+         return 'Entregado y pedido cerrado en Tiendanube.';
+diff --git a/tests/tiendanube-status-push.test.mjs b/tests/tiendanube-status-push.test.mjs
+index d22a707..44a4039 100644
+--- a/tests/tiendanube-status-push.test.mjs
++++ b/tests/tiendanube-status-push.test.mjs
+@@ -156,7 +156,7 @@ test('live: envío despachado se entrega con evento de seguimiento',async()=>{
+  f.web('2001','Envío a domicilio');
+  f.sql.prepare("INSERT INTO deliveries VALUES('2001')").run();
+  await flushTiendanubeStatusPush(liveEnv(f),now,20,api.fetchImpl);
+- assert.ok(api.llamadas.some(l=>l.method==='POST'&&l.path.endsWith('/fulfillment-orders/fo1/tracking-events')&&l.body.status==='delivered'));
++ assert.ok(api.llamadas.some(l=>l.method==='POST'&&l.path.endsWith('/fulfillment-orders/fo1/tracking-events')&&l.body.status==='delivered'&&l.body.description&&l.body.address),'Tiendanube exige description y address');
+ });
+ 
+ test('live: errores de conexión se reintentan; rechazos quedan fallidos con motivo',async()=>{
+-- 
+2.50.1 (Apple Git-155)
+

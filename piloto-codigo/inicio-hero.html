@@ -1,0 +1,53 @@
+<!-- Inicio del rediseño: portada mayorista, datos del local y accesos por rubro y talle. -->
+<style>
+  .pm-hero{display:grid;grid-template-columns:1.15fr .85fr;gap:28px;align-items:center;padding:36px 0 20px;color:#1B2340}
+  .pm-eyebrow{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#168A5E;margin-bottom:10px}
+  .pm-hero h2{font-size:clamp(30px,4.4vw,52px);line-height:1.05;margin:0 0 14px;font-weight:800}
+  .pm-hero h2 mark{background:#FFC21A;color:#1B2340;padding:0 .15em;border-radius:8px}
+  .pm-lead{font-size:16px;line-height:1.55;color:#5B6480;margin:0 0 20px;max-width:34em}
+  .pm-cta{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px}
+  .pm-btn{display:inline-flex;align-items:center;gap:8px;padding:13px 20px;border-radius:14px;font-weight:700;text-decoration:none!important;font-size:15px}
+  .pm-btn.sun{background:#FFC21A;color:#1B2340}.pm-btn.ghost{background:#fff;color:#1B2340;border:1px solid #E1E5EE}
+  .pm-trust{display:flex;flex-wrap:wrap;gap:16px;font-size:14px;color:#5B6480}.pm-trust b{color:#1B2340}.pm-stars{color:#FFC21A;letter-spacing:1px;margin-right:4px}
+  .pm-card{background:#fff;border:1px solid #E1E5EE;border-radius:18px;padding:18px}
+  .pm-tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:8px 0 14px}
+  .pm-tile{display:block;padding:14px;border-radius:14px;font-weight:700;color:#1B2340!important;text-decoration:none!important;font-size:15px}
+  .pm-tile small{display:block;font-weight:500;color:#5B6480;font-size:12px;margin-top:2px}
+  .pm-talles{display:flex;flex-wrap:wrap;gap:8px}
+  .pm-talles a{padding:7px 12px;border-radius:999px;border:1px solid #E1E5EE;background:#F7F8FB;color:#1B2340!important;font-weight:600;font-size:13px;text-decoration:none!important}
+  .pm-info{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:8px 0 12px}
+  .pm-info div{background:#fff;border:1px solid #E1E5EE;border-radius:14px;padding:14px;font-size:13px;color:#5B6480}
+  .pm-info b{display:block;color:#1B2340;font-size:14px}
+  @media (max-width:820px){.pm-hero{grid-template-columns:1fr;padding-top:20px}.pm-info{grid-template-columns:1fr 1fr}}
+</style>
+<section class="pm-hero">
+  <div>
+    <div class="pm-eyebrow">Mayorista en Rosario · Para comercios y revendedores</div>
+    <h2>Abastecé tu negocio a <mark>precio mayorista</mark>.</h2>
+    <p class="pm-lead">Pañales, perfumería, cuidado personal y más. Pedido mínimo $50.000 combinando marcas y talles. Retirás en Garay 1249 o te lo enviamos.</p>
+    <div class="pm-cta">
+      <a class="pm-btn sun" href="/productos/">Armar pedido →</a>
+      <a class="pm-btn ghost" href="#como-comprar">Cómo comprar</a>
+    </div>
+    <div class="pm-trust"><span><span class="pm-stars">★★★★★</span><b>4,9</b> · 502 opiniones en Google</span><span><b>Retiro</b> en el día</span></div>
+  </div>
+  <aside class="pm-card">
+    <div class="pm-eyebrow">Comprá por rubro</div>
+    <div class="pm-tiles">
+      <a class="pm-tile" style="background:#E4EEFF" href="/search/?q=pa%C3%B1al">Pañales<small>Bebé y adulto</small></a>
+      <a class="pm-tile" style="background:#E3F4EE" href="/search/?q=toallas">Toallitas<small>Húmedas y cambio</small></a>
+      <a class="pm-tile" style="background:#FCE6EE" href="/search/?q=colonia">Perfumería<small>Colonias y post baño</small></a>
+      <a class="pm-tile" style="background:#FFF0DA" href="/search/?q=mamadera">Alimentación<small>Mamaderas y lactancia</small></a>
+    </div>
+    <div class="pm-eyebrow">Pañales por talle</div>
+    <div class="pm-talles">
+      <a href="/search/?q=RN">RN</a><a href="/search/?q=pa%C3%B1al%20P">P</a><a href="/search/?q=pa%C3%B1al%20M">M</a><a href="/search/?q=pa%C3%B1al%20G">G</a><a href="/search/?q=pa%C3%B1al%20XG">XG</a><a href="/search/?q=pa%C3%B1al%20XXG">XXG</a><a href="/search/?q=pants">Pants</a>
+    </div>
+  </aside>
+</section>
+<div class="pm-info">
+  <div><b>Garay 1249</b>Entre Entre Ríos y Mitre</div>
+  <div><b>Lun a vie 8–16 h</b>Sábados 9–13 h</div>
+  <div><b>Retiro o envío</b>Rosario a coordinar · resto por expreso</div>
+  <div><b>Efectivo</b>Transferencia +5%</div>
+</div>

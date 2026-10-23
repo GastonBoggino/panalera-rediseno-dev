@@ -1,0 +1,42 @@
+<!-- Inicio del rediseño: cómo comprar, preguntas frecuentes y visita al local. -->
+<style>
+  .pm-sec{color:#1B2340;padding:28px 0}
+  .pm-sec h2{font-size:28px;font-weight:800;margin:0 0 4px}.pm-sub{color:#5B6480;margin:0 0 18px}
+  .pm-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;counter-reset:pm}
+  .pm-step{background:#fff;border:1px solid #E1E5EE;border-radius:18px;padding:18px}
+  .pm-step:before{counter-increment:pm;content:counter(pm);display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#FFC21A;font-weight:800;margin-bottom:10px}
+  .pm-step h3{font-size:17px;margin:0 0 6px}.pm-step p{margin:0;color:#5B6480;font-size:14px;line-height:1.5}
+  .pm-two{display:grid;grid-template-columns:1.2fr .8fr;gap:24px;align-items:start}
+  .pm-faq details{background:#fff;border:1px solid #E1E5EE;border-radius:14px;padding:14px 16px;margin-bottom:10px}
+  .pm-faq summary{font-weight:700;cursor:pointer}.pm-faq p{color:#5B6480;margin:10px 0 0;line-height:1.5;font-size:14px}
+  .pm-visit{background:#1B2340;color:#fff;border-radius:18px;padding:20px}
+  .pm-visit h3{color:#fff;font-size:20px;margin:0 0 12px}
+  .pm-visit dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0 0 16px;font-size:14px}.pm-visit dt{color:#FFC21A;font-weight:700}.pm-visit dd{margin:0}
+  .pm-visit a{display:inline-block;margin:0 8px 8px 0;padding:11px 16px;border-radius:14px;font-weight:700;text-decoration:none!important}
+  .pm-visit .sun{background:#FFC21A;color:#1B2340!important}.pm-visit .mint{background:#168A5E;color:#fff!important}
+  @media (max-width:820px){.pm-steps,.pm-two{grid-template-columns:1fr}}
+</style>
+<section class="pm-sec" id="como-comprar">
+  <h2>Cómo comprar</h2><p class="pm-sub">Tres pasos. El pedido queda a confirmar.</p>
+  <div class="pm-steps">
+    <div class="pm-step"><h3>Enviás tu pedido</h3><p>Sumá productos desde $50.000 y elegí retiro o envío. Todavía no pagás nada.</p></div>
+    <div class="pm-step"><h3>Confirmamos el stock</h3><p>Te avisamos por WhatsApp. Si falta algo, te ofrecemos un reemplazo y vos decidís.</p></div>
+    <div class="pm-step"><h3>Pagás y lo recibís</h3><p>Efectivo al retirar o recibir, o transferencia (+5%) con el comprobante por WhatsApp.</p></div>
+  </div>
+</section>
+<section class="pm-sec pm-two">
+  <div class="pm-faq">
+    <h2>Preguntas frecuentes</h2><p class="pm-sub">Lo que más nos consultan.</p>
+    <details open><summary>¿Quién puede comprar y cuál es el mínimo?</summary><p>Cualquier persona, incluso para consumo familiar. La compra mínima es de $50.000 en productos y podés combinar marcas y artículos.</p></details>
+    <details><summary>¿Cómo pago mi pedido?</summary><p>Los precios publicados son en efectivo. Por transferencia se agrega un 5%. Pagás una vez que confirmamos el stock.</p></details>
+    <details><summary>¿Cuándo puedo retirar?</summary><p>Generalmente el mismo día. Esperá la confirmación de que el pedido está listo; lo guardamos hasta una semana.</p></details>
+    <details><summary>¿Cómo son los envíos?</summary><p>En Rosario y alrededores el costo se coordina por WhatsApp. Fuera de Rosario lo despachamos por expreso. Para envíos necesitás tener cuenta con tu dirección.</p></details>
+    <details><summary>¿Qué pasa si falta un producto?</summary><p>Lo vemos al revisar el pedido y te ofrecemos un reemplazo antes de que pagues.</p></details>
+  </div>
+  <div class="pm-visit">
+    <h3>Te esperamos en Rosario</h3>
+    <dl><dt>Dirección</dt><dd>Garay 1249, entre Entre Ríos y Mitre</dd><dt>Lun a vie</dt><dd>8 a 16 h</dd><dt>Sábados</dt><dd>9 a 13 h</dd><dt>Feriados</dt><dd>Avisamos por WhatsApp</dd></dl>
+    <a class="sun" href="https://www.google.com/maps/search/Garay+1249+Rosario" target="_blank" rel="noopener">Cómo llegar</a>
+    <a class="mint" href="https://wa.me/543417535218" target="_blank" rel="noopener">Escribinos</a>
+  </div>
+</section>

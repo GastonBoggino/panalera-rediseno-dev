@@ -1,0 +1,127 @@
+<!-- Capa global del rediseño (va en el encabezado, se carga en todas las páginas):
+     tipografía, logo y WhatsApp del encabezado, tarjetas con unidades y precio por unidad,
+     chips de talle y vista "lista de precios" en los listados. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap" rel="stylesheet">
+<style>
+  h1,h2,h3,.h1,.h2,.h3,.pm-hero h2,.pm-sec h2{font-family:"Bricolage Grotesque","Outfit",sans-serif!important;letter-spacing:-.01em}
+
+  /* Encabezado */
+  .pm-logo{display:flex;align-items:center;gap:10px;text-decoration:none!important;color:#1B2340!important}
+  .pm-logo .pm-mark{width:40px;height:40px;border-radius:12px;background:#FFC21A;display:grid;place-items:center;flex:none}
+  .pm-logo .pm-mark svg{width:28px;height:28px}
+  .pm-logo b{font-family:"Bricolage Grotesque",sans-serif;font-size:19px;line-height:1;display:block;font-weight:800}
+  .pm-logo small{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#5B6480;font-weight:600;margin-top:3px}
+  .pm-wa{display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 14px;border:1px solid #E1E5EE;border-radius:999px;color:#168A5E!important;font-weight:700;text-decoration:none!important;background:#fff}
+  .pm-wa svg{width:20px;height:20px}
+  .js-search-container input[type=search],.js-search-container input[type=text]{border-radius:999px!important;border:1px solid #E1E5EE!important;background:#fff!important}
+  @media (max-width:767px){.pm-wa span,.pm-logo small{display:none}}
+
+  /* Tarjetas de producto */
+  .js-product-item-private{background:#fff;border:1px solid #E1E5EE;border-radius:16px;padding:10px;overflow:hidden}
+  .js-product-item-private .product-item-image-container{border-radius:12px;overflow:hidden;position:relative}
+  .js-product-item-private .js-item-name{font-weight:600;color:#1B2340}
+  .js-product-item-private .js-price-display{font-weight:800;color:#1B2340}
+  .pm-ppu{position:absolute;right:8px;bottom:8px;z-index:2;background:#fff;color:#1B2340;border-radius:8px;padding:2px 8px;font-size:12px;font-weight:700;box-shadow:0 1px 3px rgba(27,35,64,.15)}
+  .pm-tl{position:absolute;left:8px;top:8px;z-index:2;background:#E4EEFF;color:#1B2340;border-radius:8px;padding:2px 8px;font-size:12px;font-weight:700}
+  .pm-units{display:block;font-size:13px;color:#5B6480;margin:2px 0}
+  .pm-ppu-inline{display:none;font-weight:700;color:#1B2340}
+  .pm-list .pm-ppu-inline{display:inline}
+
+  /* Herramientas de listado: talles y vista lista */
+  .pm-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin:0 0 16px}
+  .pm-talles{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .pm-talles span{font-size:13px;color:#5B6480;font-weight:600;margin-right:4px}
+  .pm-talles a{border:1px solid #E1E5EE;background:#fff;border-radius:8px;padding:5px 10px;font-weight:700;font-size:13px;min-width:40px;text-align:center;color:#1B2340!important;text-decoration:none!important}
+  .pm-talles a:hover,.pm-talles a.on{background:#FFC21A;border-color:#FFC21A}
+  .pm-view{display:flex;border:1px solid #E1E5EE;border-radius:999px;overflow:hidden;background:#fff}
+  .pm-view button{border:0;background:none;padding:7px 14px;font-weight:700;font-size:13px;color:#5B6480;cursor:pointer}
+  .pm-view button[aria-pressed=true]{background:#1B2340;color:#fff}
+
+  /* Vista lista de precios */
+  .pm-list .js-product-table{display:block!important;background:#fff;border:1px solid #E1E5EE;border-radius:14px;overflow:hidden}
+  .pm-list .js-product-table>*{width:auto!important;max-width:none!important;padding:0!important;margin:0!important}
+  .pm-list .js-product-item-private{display:grid!important;grid-template-columns:56px 1fr auto;gap:12px;align-items:center;border:0;border-bottom:1px solid #E1E5EE;border-radius:0;padding:8px 12px}
+  .pm-list .js-product-item-private .product-item-image-container{width:56px;height:56px;padding:0!important}
+  .pm-list .js-product-item-private .product-item-image-container img{width:56px;height:56px;object-fit:contain}
+  .pm-list .pm-ppu,.pm-list .pm-tl,.pm-list .product-item-image-container .js-offer-percentage{display:none}
+  .pm-list .product-item-information{display:grid;grid-template-columns:1fr auto;gap:2px 16px;align-items:center;padding:0!important}
+  .pm-list .product-item-information>*{margin:0!important}
+  .pm-list .product-item-price-container{grid-column:2;grid-row:1/span 2;text-align:right}
+  .pm-list .buy-button-container,.pm-list .js-product-form{grid-column:3}
+</style>
+<script>
+(function(){
+  var UNIT_RE=/(?:\bx\s?|\b(?:RN|PR|P|M|G|XG|XXG|XXXG|XX|J)\s?)(\d{1,3})\b(?!\s?(?:ml|gr?|cm|kg|lts?|cc)\b)/gi;
+  var TALLE_RE=/\b(RN|PR|P|M|G|XG|XXG|XXXG|XX|J)\s?\d{1,3}\b/i;
+  function units(name){var m,last=null;UNIT_RE.lastIndex=0;while((m=UNIT_RE.exec(name)))last=+m[1];return last>1?last:null}
+  function money(text){var n=parseFloat(String(text).replace(/[^\d,]/g,'').replace(',','.'));return isNaN(n)?null:n}
+  function fmt(n){return '$'+n.toLocaleString('es-AR',{maximumFractionDigits:n<100?2:0})}
+
+  function header(){
+    var logo=document.querySelector('.logo-container a, .logo-container');
+    if(logo&&!document.querySelector('.pm-logo')){
+      var a=document.createElement('a');a.href='/';a.className='pm-logo';a.setAttribute('aria-label','Pañalera Mayorista');
+      a.innerHTML='<span class="pm-mark"><svg viewBox="0 0 32 32" fill="none" stroke="#1B2340" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 11h20l-2 10a5 5 0 0 1-5 4h-6a5 5 0 0 1-5-4z"/><path d="M6 11c3 3 6 4 10 4s7-1 10-4"/><circle cx="12" cy="20" r=".6" fill="#1B2340"/><circle cx="20" cy="20" r=".6" fill="#1B2340"/></svg></span><span><b>Pañalera</b><small>Mayorista · Rosario</small></span>';
+      var box=logo.closest('.logo-container')||logo;box.innerHTML='';box.appendChild(a);
+    }
+    var cart=document.querySelector('.js-cart-container');
+    if(cart&&!document.querySelector('.pm-wa')){
+      var w=document.createElement('a');w.className='pm-wa header-utility';w.href='https://wa.me/543417535218';w.target='_blank';w.rel='noopener';w.setAttribute('aria-label','WhatsApp');
+      w.innerHTML='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .2-3.3-.7-2.8-1.1-4.5-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.6-.4.4c-.1.2-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.3 2.4 1.5.3.1.5.1.6-.1l.9-1.1c.2-.3.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.7-.1 1.2Z"/></svg><span>WhatsApp</span>';
+      cart.parentNode.insertBefore(w,cart);
+    }
+    var input=document.querySelector('.js-search-container input[type=search], .js-search-container input[type=text]');
+    if(input)input.placeholder='Buscá Huggies, talle G, colonia…';
+  }
+
+  function cards(root){
+    (root||document).querySelectorAll('.js-product-item-private:not([data-pm])').forEach(function(card){
+      card.setAttribute('data-pm','1');
+      var name=card.querySelector('.js-item-name'),price=card.querySelector('.js-price-display'),img=card.querySelector('.product-item-image-container');
+      if(!name)return;
+      var u=units(name.textContent),p=price&&money(price.textContent),t=name.textContent.match(TALLE_RE);
+      if(u){var s=document.createElement('span');s.className='pm-units';s.textContent=u+' unidades';name.insertAdjacentElement('afterend',s)}
+      if(img&&u&&p){var b=document.createElement('span');b.className='pm-ppu';b.textContent=fmt(p/u)+' c/u';img.appendChild(b)}
+      if(img&&t){var l=document.createElement('span');l.className='pm-tl';l.textContent='Talle '+t[1].toUpperCase();img.appendChild(l)}
+      if(u&&p){var i=document.createElement('span');i.className='pm-ppu-inline';i.textContent=' · '+fmt(p/u)+' c/u';(card.querySelector('.pm-units')||name).appendChild(i)}
+      label(card);
+    });
+  }
+
+  // Botones "Comprar" / "Agregar al carrito" de las tarjetas pasan a "+ Agregar", como en la maqueta.
+  var BUY=/^\s*(comprar|agregar al carrito)\s*$/i;
+  function label(card){
+    card.querySelectorAll('input.js-addtocart').forEach(function(b){if(BUY.test(b.value))b.value='+ Agregar'});
+    card.querySelectorAll('.js-open-quickshop-wording').forEach(function(el){if(BUY.test(el.textContent))el.textContent='+ Agregar'});
+    card.querySelectorAll('.btn, .js-addtocart').forEach(function(el){
+      el.childNodes.forEach(function(n){if(n.nodeType===3&&BUY.test(n.nodeValue))n.nodeValue='+ Agregar'});
+    });
+  }
+
+  function tools(){
+    var table=document.querySelector('.section-main-products-grid .js-product-table');
+    if(!table||document.querySelector('.pm-tools'))return;
+    var q=new URLSearchParams(location.search).get('q')||'';
+    var talles=['RN','P','M','G','XG','XXG'].map(function(t){
+      var on=new RegExp('\\b'+t+'$','i').test(q.trim());
+      return '<a class="'+(on?'on':'')+'" href="/search/?q='+encodeURIComponent('pañal '+t)+'">'+t+'</a>'}).join('');
+    var bar=document.createElement('div');bar.className='pm-tools';
+    bar.innerHTML='<div class="pm-talles"><span>Pañales por talle</span>'+talles+'</div>'+
+      '<div class="pm-view" role="group" aria-label="Vista de productos"><button data-v="grid">Cuadrícula</button><button data-v="list">Lista de precios</button></div>';
+    table.parentNode.insertBefore(bar,table);
+    var saved='grid';try{saved=localStorage.getItem('pm-view')||'grid'}catch(e){}
+    function set(v){document.body.classList.toggle('pm-list',v==='list');bar.querySelectorAll('[data-v]').forEach(function(b){b.setAttribute('aria-pressed',b.dataset.v===v)});try{localStorage.setItem('pm-view',v)}catch(e){}}
+    bar.addEventListener('click',function(e){var b=e.target.closest('[data-v]');if(b)set(b.dataset.v)});
+    set(saved);
+  }
+
+  function run(){header();cards();tools()}
+  function start(){
+    run();
+    // Productos que se cargan después (scroll infinito, filtros, carrito).
+    new MutationObserver(function(){cards();tools()}).observe(document.body,{childList:true,subtree:true});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',start):start();
+})();
+</script>

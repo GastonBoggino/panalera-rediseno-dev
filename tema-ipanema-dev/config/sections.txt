@@ -1,0 +1,15 @@
+primary
+	name = Featured
+	description = The products appear featured on your home page (up to 40 products)
+new
+	name = News
+	description = The products appear as new on your home page (up to 40 products)
+sale
+	name = Sale
+	description = The products appear on sale on your home page (up to 40 products)
+timer_offers
+	name = Timer offers
+	description = The products appear as offers with a timer on your home page (up to 40 products)
+featured
+	name = Main
+	description = The main product appears on your home page (1 product)

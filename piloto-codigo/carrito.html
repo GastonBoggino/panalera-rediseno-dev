@@ -1,0 +1,33 @@
+<!-- Piloto rediseño: barra de avance hacia la compra mínima en la página del carrito. -->
+<style>
+  .pm-min{margin:0 0 16px;padding:14px 16px;border-radius:14px;background:#F7F8FB;border:1px solid #E1E5EE;color:#1B2340;font-size:14px}
+  .pm-min-track{height:10px;margin-top:10px;border-radius:999px;background:#E1E5EE;overflow:hidden}
+  .pm-min-fill{height:100%;border-radius:999px;background:#FFC21A;transition:width .3s}
+  .pm-min.ok{background:#DDF3E9;border-color:#DDF3E9}
+  .pm-min.ok .pm-min-fill{background:#168A5E}
+  .pm-min small{display:block;margin-top:8px;color:#5B6480}
+</style>
+<script>
+(function(){
+  var MIN=50000;
+  function money(text){var n=parseFloat(String(text).replace(/[^\d,]/g,'').replace(',','.'));return isNaN(n)?0:n}
+  function fmt(n){return '$'+Math.round(n).toLocaleString('es-AR')}
+  function render(){
+    var sub=document.querySelector('.js-cart-subtotal'),row=document.querySelector('.cart-subtotals-container')||(sub&&sub.closest('.cart-totals-row'));
+    if(!sub||!row)return;
+    var el=document.getElementById('pm-min');
+    if(!el){el=document.createElement('div');el.id='pm-min';el.className='pm-min';row.parentNode.insertBefore(el,row)}
+    var total=money(sub.textContent),left=MIN-total,pct=Math.min(100,total/MIN*100);
+    el.classList.toggle('ok',left<=0);
+    el.innerHTML=(left>0?'Te faltan <b>'+fmt(left)+'</b> para la compra mínima de '+fmt(MIN)+'.':'<b>Llegaste a la compra mínima.</b> Ya podés enviar tu pedido.')+
+      '<div class="pm-min-track"><div class="pm-min-fill" style="width:'+pct+'%"></div></div>'+
+      '<small>El pedido queda a confirmar: te avisamos el stock por WhatsApp antes del pago.</small>';
+  }
+  function start(){
+    render();
+    var sub=document.querySelector('.js-cart-subtotal');
+    if(sub)new MutationObserver(render).observe(sub,{childList:true,characterData:true,subtree:true});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',start):start();
+})();
+</script>

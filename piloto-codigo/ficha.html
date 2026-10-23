@@ -1,0 +1,37 @@
+<!-- Piloto rediseño: precio por unidad y aviso de pedido a confirmar en la ficha de producto. -->
+<style>
+  .pm-unit{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0 4px;font-size:14px;color:#5B6480}
+  .pm-unit b{font-weight:700;color:#1B2340}
+  .pm-chip{background:#DDF3E9;color:#168A5E;border-radius:999px;padding:3px 10px;font-weight:600}
+  .pm-confirm{margin:14px 0;padding:12px 14px;border-radius:14px;background:#FFF3CC;color:#1B2340;font-size:13px;line-height:1.45}
+  .pm-confirm strong{display:block;margin-bottom:2px}
+  .product-price-display{color:#1B2340}
+</style>
+<script>
+(function(){
+  // Unidades por paquete a partir del nombre: "PREMIUM G60", "XG52", "x10", "x 48".
+  var UNIT_RE=/(?:\bx\s?|\b(?:RN|PR|P|M|G|XG|XXG|XXXG|XX|J)\s?)(\d{1,3})\b(?!\s?(?:ml|gr?|cm|kg|lts?|cc)\b)/gi;
+  function units(name){var m,last=null;UNIT_RE.lastIndex=0;while((m=UNIT_RE.exec(name)))last=+m[1];return last>1?last:null}
+  function money(text){var n=parseFloat(String(text).replace(/[^\d,]/g,'').replace(',','.'));return isNaN(n)?null:n}
+  function fmt(n){return '$'+n.toLocaleString('es-AR',{minimumFractionDigits:0,maximumFractionDigits:n<100?2:0})}
+  function render(){
+    var name=document.querySelector('h1.js-product-name'),price=document.getElementById('price_display'),box=document.querySelector('.js-price-container');
+    if(!name||!price||!box)return;
+    var el=document.getElementById('pm-unit');
+    if(!el){el=document.createElement('div');el.id='pm-unit';el.className='pm-unit';box.insertAdjacentElement('afterend',el)}
+    var u=units(name.textContent),p=money(price.textContent);
+    el.innerHTML=u&&p?'<span class="pm-chip">'+u+' unidades</span><span><b>'+fmt(p/u)+'</b> c/u</span>':'';
+    if(!document.getElementById('pm-confirm')){
+      var c=document.createElement('div');c.id='pm-confirm';c.className='pm-confirm';
+      c.innerHTML='<strong>Pedido a confirmar</strong>Te confirmamos el stock por WhatsApp antes de que pagues. Transferencia: +5%. Compra mínima $50.000.';
+      el.insertAdjacentElement('afterend',c);
+    }
+  }
+  function start(){
+    render();
+    var price=document.getElementById('price_display');
+    if(price)new MutationObserver(render).observe(price,{childList:true,characterData:true,subtree:true});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',start):start();
+})();
+</script>

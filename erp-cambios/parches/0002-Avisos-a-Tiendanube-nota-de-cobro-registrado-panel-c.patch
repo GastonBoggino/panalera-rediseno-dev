@@ -1,0 +1,79 @@
+From 0b40838b3a01f83790a837ca68a2610e37f5cf92 Mon Sep 17 00:00:00 2001
+From: gaston <gastonboggino1@gmail.com>
+Date: Thu, 22 Oct 2026 21:21:08 -0300
+Subject: [PATCH 2/6] Avisos a Tiendanube: nota de cobro registrado; panel con
+ enviados/fallidos
+
+---
+ app/api/tiendanube/statusPush.ts      |  8 ++++++--
+ tests/tiendanube-status-push.test.mjs | 10 +++++++++-
+ 2 files changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/app/api/tiendanube/statusPush.ts b/app/api/tiendanube/statusPush.ts
+index 78693f3..ec3f21d 100644
+--- a/app/api/tiendanube/statusPush.ts
++++ b/app/api/tiendanube/statusPush.ts
+@@ -8,7 +8,7 @@
+ // Ver docs/DISENO-ERP-A-TIENDANUBE-20261022.md.
+ 
+ export type StatusPushTarget =
+-  | 'quote_sent_note' | 'confirmed_note'
++  | 'quote_sent_note' | 'confirmed_note' | 'paid_note'
+   | 'in_preparation' | 'ready_for_pickup' | 'packed' | 'dispatched' | 'delivered'
+   | 'cancelled';
+ 
+@@ -45,6 +45,9 @@ export const tiendanubeStatusPushSchema = [
+   `CREATE TRIGGER IF NOT EXISTS tn_push_cancelled AFTER UPDATE OF commercial_status ON order_workflow
+  WHEN NEW.commercial_status IN ('cancelled','rejected') AND OLD.commercial_status NOT IN ('cancelled','rejected') AND COALESCE(NEW.updated_by,'')<>'Tiendanube'
+  BEGIN ${enqueue('NEW.order_id', 'cancelled')}; END`,
++  // Cobro registrado: la API no permite marcar pagado; queda como nota interna (la lee el sitio propio).
++  `CREATE TRIGGER IF NOT EXISTS tn_push_paid AFTER UPDATE OF payment_status ON order_workflow
++ WHEN NEW.payment_status='paid' AND OLD.payment_status<>'paid' BEGIN ${enqueue('NEW.order_id', 'paid_note')}; END`,
+   `CREATE TRIGGER IF NOT EXISTS tn_push_session_insert AFTER INSERT ON order_sessions
+  WHEN NEW.status='in_progress' BEGIN ${enqueue('NEW.order_id', 'in_preparation')}; END`,
+   `CREATE TRIGGER IF NOT EXISTS tn_push_session_update AFTER UPDATE OF status ON order_sessions
+@@ -71,6 +74,7 @@ export function statusPushRequest(row: Row, order: Order) {
+   switch (row.target) {
+     case 'quote_sent_note': return note('Cotización enviada');
+     case 'confirmed_note': return note('Confirmado por el cliente');
++    case 'paid_note': return note('Cobro registrado');
+     case 'in_preparation': return step('IN_PREPARATION', '«En preparación»');
+     case 'ready_for_pickup': return step('READY_FOR_PICKUP', '«Listo para retirar»');
+     case 'packed': return step('PACKED', '«Empaquetado»');
+@@ -115,7 +119,7 @@ export function liveSender(env: StatusPushEnv, fetchImpl: Fetch = (input, init)
+   return async (row: Row, request: ReturnType<typeof statusPushRequest>) => {
+     const id = encodeURIComponent(row.platform_id);
+     switch (row.target) {
+-      case 'quote_sent_note': case 'confirmed_note': {
++      case 'quote_sent_note': case 'confirmed_note': case 'paid_note': {
+         // La nota se agrega a la que ya tenga el pedido: no pisa lo que escriba el local.
+         const linea = String((request.body as {owner_note: string}).owner_note);
+         const actual = String((await api('GET', `/orders/${id}?fields=owner_note`))?.owner_note || '');
+diff --git a/tests/tiendanube-status-push.test.mjs b/tests/tiendanube-status-push.test.mjs
+index 99039a1..d22a707 100644
+--- a/tests/tiendanube-status-push.test.mjs
++++ b/tests/tiendanube-status-push.test.mjs
+@@ -8,7 +8,7 @@ const now=new Date('2026-10-22T12:00:00Z');
+ function fixture(){
+  const sql=new DatabaseSync(':memory:');
+  sql.exec(`CREATE TABLE external_orders(order_id TEXT PRIMARY KEY,platform_id TEXT,source TEXT,mode TEXT);
+- CREATE TABLE order_workflow(order_id TEXT PRIMARY KEY,commercial_status TEXT,delivery_status TEXT,quote_sent_at TEXT DEFAULT '',updated_by TEXT DEFAULT '',updated_at TEXT);
++ CREATE TABLE order_workflow(order_id TEXT PRIMARY KEY,commercial_status TEXT,delivery_status TEXT,payment_status TEXT DEFAULT 'pending',quote_sent_at TEXT DEFAULT '',updated_by TEXT DEFAULT '',updated_at TEXT);
+  CREATE TABLE order_sessions(order_id TEXT PRIMARY KEY,status TEXT);
+  CREATE TABLE deliveries(order_id TEXT PRIMARY KEY);`);
+  const prepare=(query,values=[])=>({
+@@ -174,3 +174,11 @@ test('live: errores de conexión se reintentan; rechazos quedan fallidos con mot
+  assert.equal(s.failed,1);
+  assert.match(f.rows('5002')[0].detail,/No se pudo enviar: PATCH \/orders\/P95002\/fulfillment-orders\/fo1 → 422/);
+ });
++
++test('cobro registrado: nota interna para que el sitio muestre "Pagado"',async()=>{
++ const f=fixture();await ensureTiendanubeStatusPush(f.db);const api=falsaApi();
++ f.web('6001');f.set('6001',{payment_status:'paid'});f.set('6001',{payment_status:'paid'});
++ assert.deepEqual(f.rows('6001').map(r=>r.target),['paid_note']);
++ await flushTiendanubeStatusPush(liveEnv(f),now,20,api.fetchImpl);
++ assert.match(api.nota(),/ERP · Cobro registrado/);
++});
+-- 
+2.50.1 (Apple Git-155)
+

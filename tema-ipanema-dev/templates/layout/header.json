@@ -1,0 +1,135 @@
+{
+  "type": "header",
+  "name": "t:names.header",
+  "sections": {
+    "navigation_bar": {
+      "type": "navigation-bar",
+      "settings": {
+        "section_width": "full",
+        "horizontal_padding": 32,
+        "background_color": "#FFC21A",
+        "text_color": "#1B2340"
+      },
+      "blocks": {
+        "nav_icon_text": {
+          "type": "nav-icon-text-group",
+          "settings": {
+            "alignment": "center",
+            "gap": 24
+          },
+          "blocks": {
+            "item_1": {
+              "type": "nav-icon-text-item",
+              "settings": {
+                "icon_source": "design",
+                "icon": "bag",
+                "description": "Compra mínima <b>$50.000</b> combinando marcas"
+              }
+            },
+            "item_2": {
+              "type": "nav-icon-text-item",
+              "settings": {
+                "icon_source": "design",
+                "icon": "cash",
+                "description": "Precios en efectivo · Transferencia +5%"
+              }
+            },
+            "item_3": {
+              "type": "nav-icon-text-item",
+              "settings": {
+                "icon_source": "design",
+                "icon": "store",
+                "description": "Retiro en Garay 1249 o envío"
+              }
+            }
+          },
+          "block_order": [
+            "item_1",
+            "item_2",
+            "item_3"
+          ]
+        }
+      },
+      "block_order": [
+        "nav_icon_text"
+      ]
+    },
+    "header": {
+      "type": "header",
+      "settings": {
+        "logo_position_desktop": "left",
+        "section_width": "full",
+        "vertical_padding": 12,
+        "horizontal_padding": 40,
+        "use_different_mobile_padding": true,
+        "vertical_padding_mobile": 16,
+        "horizontal_padding_mobile": 28,
+        "background_color": "#FFFFFF",
+        "text_color": "#1B2340",
+        "logo_position_mobile": "left",
+        "use_different_mobile_position": false
+      },
+      "blocks": {
+        "logo": {
+          "type": "header-logo",
+          "settings": {
+            "height": 42,
+            "use_different_mobile_height": false
+          }
+        },
+        "utilities": {
+          "type": "header-utilities",
+          "settings": {
+            "format": "icons_text",
+            "search_type": "expanded",
+            "cart_icon": "bag",
+            "show_languages_header": false,
+            "search_type_mobile": "expanded"
+          }
+        },
+        "navigation": {
+          "type": "header-navigation",
+          "settings": {
+            "nav_uppercase": false,
+            "show_categories_link": false,
+            "show_mobile_categories": false,
+            "nav_alignment_desktop": "center",
+            "vertical_padding": 14,
+            "nav_divider_color": "transparent",
+            "show_secondary_menu": false
+          }
+        }
+      },
+      "block_order": [
+        "logo",
+        "utilities",
+        "navigation"
+      ]
+    },
+    "piloto_global": {
+      "type": "custom",
+      "settings": {
+        "section_width": "page",
+        "direction": "column",
+        "vertical_padding": 0
+      },
+      "blocks": {
+        "piloto_global_code": {
+          "type": "code",
+          "settings": {
+            "code": "<!-- Capa global del rediseño (va en el encabezado, se carga en todas las páginas):\n     tipografía, logo y WhatsApp del encabezado, tarjetas con unidades y precio por unidad,\n     chips de talle y vista \"lista de precios\" en los listados. -->\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link href=\"https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap\" rel=\"stylesheet\">\n<style>\n  h1,h2,h3,.h1,.h2,.h3,.pm-hero h2,.pm-sec h2{font-family:\"Bricolage Grotesque\",\"Outfit\",sans-serif!important;letter-spacing:-.01em}\n\n  /* Encabezado */\n  .pm-logo{display:flex;align-items:center;gap:10px;text-decoration:none!important;color:#1B2340!important}\n  .pm-logo .pm-mark{width:40px;height:40px;border-radius:12px;background:#FFC21A;display:grid;place-items:center;flex:none}\n  .pm-logo .pm-mark svg{width:28px;height:28px}\n  .pm-logo b{font-family:\"Bricolage Grotesque\",sans-serif;font-size:19px;line-height:1;display:block;font-weight:800}\n  .pm-logo small{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#5B6480;font-weight:600;margin-top:3px}\n  .pm-wa{display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 14px;border:1px solid #E1E5EE;border-radius:999px;color:#168A5E!important;font-weight:700;text-decoration:none!important;background:#fff}\n  .pm-wa svg{width:20px;height:20px}\n  .js-search-container input[type=search],.js-search-container input[type=text]{border-radius:999px!important;border:1px solid #E1E5EE!important;background:#fff!important}\n  @media (max-width:767px){.pm-wa span,.pm-logo small{display:none}}\n\n  /* Tarjetas de producto */\n  .js-product-item-private{background:#fff;border:1px solid #E1E5EE;border-radius:16px;padding:10px;overflow:hidden}\n  .js-product-item-private .product-item-image-container{border-radius:12px;overflow:hidden;position:relative}\n  .js-product-item-private .js-item-name{font-weight:600;color:#1B2340}\n  .js-product-item-private .js-price-display{font-weight:800;color:#1B2340}\n  .pm-ppu{position:absolute;right:8px;bottom:8px;z-index:2;background:#fff;color:#1B2340;border-radius:8px;padding:2px 8px;font-size:12px;font-weight:700;box-shadow:0 1px 3px rgba(27,35,64,.15)}\n  .pm-tl{position:absolute;left:8px;top:8px;z-index:2;background:#E4EEFF;color:#1B2340;border-radius:8px;padding:2px 8px;font-size:12px;font-weight:700}\n  .pm-units{display:block;font-size:13px;color:#5B6480;margin:2px 0}\n  .pm-ppu-inline{display:none;font-weight:700;color:#1B2340}\n  .pm-list .pm-ppu-inline{display:inline}\n\n  /* Herramientas de listado: talles y vista lista */\n  .pm-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin:0 0 16px}\n  .pm-talles{display:flex;flex-wrap:wrap;gap:6px;align-items:center}\n  .pm-talles span{font-size:13px;color:#5B6480;font-weight:600;margin-right:4px}\n  .pm-talles a{border:1px solid #E1E5EE;background:#fff;border-radius:8px;padding:5px 10px;font-weight:700;font-size:13px;min-width:40px;text-align:center;color:#1B2340!important;text-decoration:none!important}\n  .pm-talles a:hover,.pm-talles a.on{background:#FFC21A;border-color:#FFC21A}\n  .pm-view{display:flex;border:1px solid #E1E5EE;border-radius:999px;overflow:hidden;background:#fff}\n  .pm-view button{border:0;background:none;padding:7px 14px;font-weight:700;font-size:13px;color:#5B6480;cursor:pointer}\n  .pm-view button[aria-pressed=true]{background:#1B2340;color:#fff}\n\n  /* Vista lista de precios */\n  .pm-list .js-product-table{display:block!important;background:#fff;border:1px solid #E1E5EE;border-radius:14px;overflow:hidden}\n  .pm-list .js-product-table>*{width:auto!important;max-width:none!important;padding:0!important;margin:0!important}\n  .pm-list .js-product-item-private{display:grid!important;grid-template-columns:56px 1fr auto;gap:12px;align-items:center;border:0;border-bottom:1px solid #E1E5EE;border-radius:0;padding:8px 12px}\n  .pm-list .js-product-item-private .product-item-image-container{width:56px;height:56px;padding:0!important}\n  .pm-list .js-product-item-private .product-item-image-container img{width:56px;height:56px;object-fit:contain}\n  .pm-list .pm-ppu,.pm-list .pm-tl,.pm-list .product-item-image-container .js-offer-percentage{display:none}\n  .pm-list .product-item-information{display:grid;grid-template-columns:1fr auto;gap:2px 16px;align-items:center;padding:0!important}\n  .pm-list .product-item-information>*{margin:0!important}\n  .pm-list .product-item-price-container{grid-column:2;grid-row:1/span 2;text-align:right}\n  .pm-list .buy-button-container,.pm-list .js-product-form{grid-column:3}\n</style>\n<script>\n(function(){\n  var UNIT_RE=/(?:\\bx\\s?|\\b(?:RN|PR|P|M|G|XG|XXG|XXXG|XX|J)\\s?)(\\d{1,3})\\b(?!\\s?(?:ml|gr?|cm|kg|lts?|cc)\\b)/gi;\n  var TALLE_RE=/\\b(RN|PR|P|M|G|XG|XXG|XXXG|XX|J)\\s?\\d{1,3}\\b/i;\n  function units(name){var m,last=null;UNIT_RE.lastIndex=0;while((m=UNIT_RE.exec(name)))last=+m[1];return last>1?last:null}\n  function money(text){var n=parseFloat(String(text).replace(/[^\\d,]/g,'').replace(',','.'));return isNaN(n)?null:n}\n  function fmt(n){return '$'+n.toLocaleString('es-AR',{maximumFractionDigits:n<100?2:0})}\n\n  function header(){\n    var logo=document.querySelector('.logo-container a, .logo-container');\n    if(logo&&!document.querySelector('.pm-logo')){\n      var a=document.createElement('a');a.href='/';a.className='pm-logo';a.setAttribute('aria-label','Pañalera Mayorista');\n      a.innerHTML='<span class=\"pm-mark\"><svg viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"#1B2340\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 11h20l-2 10a5 5 0 0 1-5 4h-6a5 5 0 0 1-5-4z\"/><path d=\"M6 11c3 3 6 4 10 4s7-1 10-4\"/><circle cx=\"12\" cy=\"20\" r=\".6\" fill=\"#1B2340\"/><circle cx=\"20\" cy=\"20\" r=\".6\" fill=\"#1B2340\"/></svg></span><span><b>Pañalera</b><small>Mayorista · Rosario</small></span>';\n      var box=logo.closest('.logo-container')||logo;box.innerHTML='';box.appendChild(a);\n    }\n    var cart=document.querySelector('.js-cart-container');\n    if(cart&&!document.querySelector('.pm-wa')){\n      var w=document.createElement('a');w.className='pm-wa header-utility';w.href='https://wa.me/543417535218';w.target='_blank';w.rel='noopener';w.setAttribute('aria-label','WhatsApp');\n      w.innerHTML='<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .2-3.3-.7-2.8-1.1-4.5-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.6-.4.4c-.1.2-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.3 2.4 1.5.3.1.5.1.6-.1l.9-1.1c.2-.3.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.7-.1 1.2Z\"/></svg><span>WhatsApp</span>';\n      cart.parentNode.insertBefore(w,cart);\n    }\n    var input=document.querySelector('.js-search-container input[type=search], .js-search-container input[type=text]');\n    if(input)input.placeholder='Buscá Huggies, talle G, colonia…';\n  }\n\n  function cards(root){\n    (root||document).querySelectorAll('.js-product-item-private:not([data-pm])').forEach(function(card){\n      card.setAttribute('data-pm','1');\n      var name=card.querySelector('.js-item-name'),price=card.querySelector('.js-price-display'),img=card.querySelector('.product-item-image-container');\n      if(!name)return;\n      var u=units(name.textContent),p=price&&money(price.textContent),t=name.textContent.match(TALLE_RE);\n      if(u){var s=document.createElement('span');s.className='pm-units';s.textContent=u+' unidades';name.insertAdjacentElement('afterend',s)}\n      if(img&&u&&p){var b=document.createElement('span');b.className='pm-ppu';b.textContent=fmt(p/u)+' c/u';img.appendChild(b)}\n      if(img&&t){var l=document.createElement('span');l.className='pm-tl';l.textContent='Talle '+t[1].toUpperCase();img.appendChild(l)}\n      if(u&&p){var i=document.createElement('span');i.className='pm-ppu-inline';i.textContent=' · '+fmt(p/u)+' c/u';(card.querySelector('.pm-units')||name).appendChild(i)}\n      label(card);\n    });\n  }\n\n  // Botones \"Comprar\" / \"Agregar al carrito\" de las tarjetas pasan a \"+ Agregar\", como en la maqueta.\n  var BUY=/^\\s*(comprar|agregar al carrito)\\s*$/i;\n  function label(card){\n    card.querySelectorAll('input.js-addtocart').forEach(function(b){if(BUY.test(b.value))b.value='+ Agregar'});\n    card.querySelectorAll('.js-open-quickshop-wording').forEach(function(el){if(BUY.test(el.textContent))el.textContent='+ Agregar'});\n    card.querySelectorAll('.btn, .js-addtocart').forEach(function(el){\n      el.childNodes.forEach(function(n){if(n.nodeType===3&&BUY.test(n.nodeValue))n.nodeValue='+ Agregar'});\n    });\n  }\n\n  function tools(){\n    var table=document.querySelector('.section-main-products-grid .js-product-table');\n    if(!table||document.querySelector('.pm-tools'))return;\n    var q=new URLSearchParams(location.search).get('q')||'';\n    var talles=['RN','P','M','G','XG','XXG'].map(function(t){\n      var on=new RegExp('\\\\b'+t+'$','i').test(q.trim());\n      return '<a class=\"'+(on?'on':'')+'\" href=\"/search/?q='+encodeURIComponent('pañal '+t)+'\">'+t+'</a>'}).join('');\n    var bar=document.createElement('div');bar.className='pm-tools';\n    bar.innerHTML='<div class=\"pm-talles\"><span>Pañales por talle</span>'+talles+'</div>'+\n      '<div class=\"pm-view\" role=\"group\" aria-label=\"Vista de productos\"><button data-v=\"grid\">Cuadrícula</button><button data-v=\"list\">Lista de precios</button></div>';\n    table.parentNode.insertBefore(bar,table);\n    var saved='grid';try{saved=localStorage.getItem('pm-view')||'grid'}catch(e){}\n    function set(v){document.body.classList.toggle('pm-list',v==='list');bar.querySelectorAll('[data-v]').forEach(function(b){b.setAttribute('aria-pressed',b.dataset.v===v)});try{localStorage.setItem('pm-view',v)}catch(e){}}\n    bar.addEventListener('click',function(e){var b=e.target.closest('[data-v]');if(b)set(b.dataset.v)});\n    set(saved);\n  }\n\n  function run(){header();cards();tools()}\n  function start(){\n    run();\n    // Productos que se cargan después (scroll infinito, filtros, carrito).\n    new MutationObserver(function(){cards();tools()}).observe(document.body,{childList:true,subtree:true});\n  }\n  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',start):start();\n})();\n</script>\n",
+            "width": "fill"
+          }
+        }
+      },
+      "block_order": [
+        "piloto_global_code"
+      ]
+    }
+  },
+  "order": [
+    "navigation_bar",
+    "header",
+    "piloto_global"
+  ]
+}

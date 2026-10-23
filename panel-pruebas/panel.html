@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel de pruebas</title>
+<style>
+  :root{--ink:#1B2340;--muted:#5B6480;--line:#E1E5EE;--paper:#F7F8FB;--sun:#FFC21A;--mint:#168A5E;--bad:#B42318}
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--paper)}
+  header{background:#fff;border-bottom:1px solid var(--line);padding:14px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+  h1{font-size:18px;margin:0}
+  .tag{background:#FFF3CC;color:#8A5A00;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:700;margin-left:8px}
+  main{max-width:1100px;margin:0 auto;padding:16px}
+  button{font:inherit;border:1px solid var(--line);background:#fff;border-radius:10px;padding:7px 12px;cursor:pointer;font-weight:600;color:var(--ink)}
+  button.sun{background:var(--sun);border-color:var(--sun)}
+  button.bad{color:var(--bad)}
+  button:disabled{opacity:.5;cursor:wait}
+  .top{display:flex;flex-wrap:wrap;gap:8px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+  .meta{color:var(--muted);font-size:13px}
+  .pill{display:inline-block;border-radius:999px;padding:2px 9px;font-size:12px;font-weight:700;background:var(--paper);border:1px solid var(--line);margin-right:4px}
+  .acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  #log{white-space:pre-wrap;background:#1B2340;color:#fff;border-radius:12px;padding:12px;font:13px/1.5 ui-monospace,Menlo,monospace;min-height:48px}
+  .err{color:#FFB4A9}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>Panel de pruebas <span class="tag">SOLO DEV · ERP de prueba local + tienda demo</span></h1>
+  <div class="meta">Mueve los pedidos como lo haría el depósito. El escaneo usa el código de barras de cada unidad, igual que el PDA.</div></div>
+  <div class="top">
+    <button id="importar">Importar pedidos web</button>
+    <button id="catalogo">Sincronizar catálogo</button>
+    <button id="refrescar">Actualizar</button>
+  </div>
+</header>
+<main>
+  <div id="log">Listo.</div>
+  <h2 style="font-size:16px">Pedidos</h2>
+  <div id="lista">Cargando…</div>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const ETQ = { draft: 'Borrador', quote_sent: 'Cotización', confirmed: 'Confirmado', cancelled: 'Cancelado', rejected: 'Rechazado', expired: 'Vencido',
+  pending: 'Pendiente', preparing: 'Preparando', ready_pickup: 'Listo p/ retirar', ready_dispatch: 'Listo p/ envío', in_transit: 'En reparto', delivered: 'Entregado', paid: 'Cobrado' };
+let ocupado = false;
+
+function log(lineas, error) {
+  $('#log').innerHTML = (Array.isArray(lineas) ? lineas : [lineas]).map((l) => `<div class="${error ? 'err' : ''}">${esc(l)}</div>`).join('');
+}
+
+async function llamar(url, opciones) {
+  const r = await fetch(url, opciones);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || `Error ${r.status}`);
+  return d;
+}
+
+async function cargar() {
+  try {
+    const { pedidos } = await llamar('/api/pedidos');
+    const activos = pedidos.filter((p) => !['cancelled', 'expired', 'rejected'].includes(p.comercial) && p.entrega !== 'delivered');
+    const resto = pedidos.filter((p) => !activos.includes(p));
+    $('#lista').innerHTML = [...activos, ...resto].map(tarjeta).join('') || '<div class="card">No hay pedidos.</div>';
+  } catch (e) { $('#lista').innerHTML = `<div class="card">${esc(e.message)}</div>`; }
+}
+
+function tarjeta(p) {
+  const unidades = p.items.reduce((s, i) => s + i.qty, 0);
+  const cerrado = ['cancelled', 'expired', 'rejected'].includes(p.comercial) || p.entrega === 'delivered';
+  const b = (accion, texto, clase = '') => `<button class="${clase}" data-id="${esc(p.id)}" data-accion="${accion}">${texto}</button>`;
+  const acciones = cerrado ? '' : [
+    p.comercial !== 'confirmed' ? b('cotizar', 'Cotización enviada') + b('confirmar', 'Confirmar') : '',
+    p.comercial === 'confirmed' && !['ready_pickup', 'ready_dispatch', 'in_transit'].includes(p.entrega) ? b('escanear', 'Escanear todo (sin BOX)') + b('escanear-y-box', 'Escanear todo y pasar a BOX', 'sun') : '',
+    p.comercial !== 'confirmed' ? b('hasta-box', 'Confirmar → escanear → BOX', 'sun') : '',
+    p.pago !== 'paid' ? b('cobrar', 'Cobrar (efectivo)') : '',
+    p.entrega === 'ready_pickup' && p.pago === 'paid' ? b('entregar', 'Entregar') : '',
+    p.entrega === 'ready_pickup' && p.pago !== 'paid' ? b('cobrar-y-entregar', 'Cobrar y entregar') : '',
+    p.entrega === 'ready_dispatch' && p.pago === 'paid' ? b('reparto', 'Salir a reparto', 'sun') : '',
+    p.entrega === 'ready_dispatch' && p.pago !== 'paid' ? b('cobrar-y-reparto', 'Cobrar y salir a reparto', 'sun') : '',
+    p.entrega === 'in_transit' && !p.vuelveAlLocal ? b('entregar', 'Entregado al cliente', 'sun') : '',
+    p.vuelveAlLocal ? b('devolucion', 'Volvió al local (cerrar cancelación)', 'sun') : '',
+    !p.vuelveAlLocal ? b('cancelar', p.entrega === 'in_transit' ? 'Cancelar (en reparto)' : 'Cancelar', 'bad') : '',
+  ].join('');
+  return `<div class="card"><div class="row"><div><b>#${esc(p.id)} · ${esc(p.cliente)}</b>
+      ${p.vuelveAlLocal ? '<div class="meta" style="color:var(--bad);font-weight:700">Cancelado en reparto · volver al local</div>' : ''}${p.pidioCancelar ? '<div class="meta" style="color:var(--bad);font-weight:700">El cliente pidió cancelar · revisar</div>' : ''}
+      <div class="meta">${esc(p.origen)} · ${esc(p.modo)} · ${unidades} unidad(es)${p.leidas ? ` · ${p.leidas} leídas` : ''}${p.box ? ` · ${esc(p.box)}` : ''}</div></div>
+      <div><span class="pill">${esc(ETQ[p.comercial] || p.comercial)}</span><span class="pill">${esc(ETQ[p.entrega] || p.entrega)}</span><span class="pill">${esc(ETQ[p.pago] || p.pago)}</span></div></div>
+    <div class="acts">${acciones}</div></div>`;
+}
+
+async function ejecutar(url, etiqueta, boton) {
+  if (ocupado) return;
+  ocupado = true;
+  document.querySelectorAll('button').forEach((x) => x.disabled = true);
+  log(`${etiqueta}…`);
+  try { const d = await llamar(url, { method: 'POST' }); log(d.log); }
+  catch (e) { log(e.message, true); }
+  finally { ocupado = false; document.querySelectorAll('button').forEach((x) => x.disabled = false); await cargar(); }
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button'); if (!t) return;
+  if (t.id === 'refrescar') return cargar();
+  if (t.id === 'importar') return ejecutar('/api/importar', 'Importando pedidos web', t);
+  if (t.id === 'catalogo') return ejecutar('/api/catalogo', 'Sincronizando catálogo desde la tienda demo', t);
+  if (t.dataset.accion) {
+    if (t.dataset.accion === 'cancelar' && !confirm(`¿Cancelar el pedido #${t.dataset.id}?`)) return;
+    ejecutar(`/api/pedido/${encodeURIComponent(t.dataset.id)}/${t.dataset.accion}`, `#${t.dataset.id}: ${t.textContent}`, t);
+  }
+});
+cargar();
+</script>
+</body>
+</html>

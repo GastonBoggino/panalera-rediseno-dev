@@ -1,0 +1,175 @@
+{
+  "sections": {
+    "main_product": {
+      "type": "main-product",
+      "settings": {
+        "section_width": "full"
+      },
+      "blocks": {
+        "product_media": {
+          "type": "product-media",
+          "settings": {
+            "show_thumbnails": true,
+            "thumbnail_position": "left",
+            "format": "grid",
+            "columns": "1_and_2",
+            "gap": 8
+          }
+        },
+        "product_info": {
+          "type": "product-info",
+          "settings": {
+            "gap": 40,
+            "vertical_padding": 8,
+            "horizontal_padding": 0
+          },
+          "blocks": {
+            "description": {
+              "type": "description",
+              "settings": {
+                "show_title": true,
+                "show_social": true
+              }
+            },
+            "purchase_info": {
+              "type": "purchase-info",
+              "settings": {
+                "icon_size": 24,
+                "title_size": "paragraph",
+                "description_size": "paragraph_small",
+                "gap": 24
+              },
+              "blocks": {
+                "icon_returns": {
+                  "type": "icon-text-item",
+                  "settings": {
+                    "icon": "store",
+                    "title": "Retiro en Garay 1249",
+                    "description": "Generalmente en el día, cuando te avisamos que está listo."
+                  }
+                },
+                "icon_security": {
+                  "type": "icon-text-item",
+                  "settings": {
+                    "icon": "cash",
+                    "title": "Pagás después de confirmar",
+                    "description": "Efectivo, o transferencia +5% con comprobante por WhatsApp."
+                  }
+                }
+              },
+              "block_order": [
+                "icon_returns",
+                "icon_security"
+              ]
+            }
+          },
+          "block_order": [
+            "description",
+            "purchase_info"
+          ]
+        }
+      },
+      "block_order": [
+        "product_media",
+        "product_info"
+      ]
+    },
+    "product_description": {
+      "type": "product-description",
+      "disabled": true,
+      "settings": {
+        "show_title": true,
+        "show_social": true,
+        "section_width": "page",
+        "vertical_padding": 8,
+        "horizontal_padding": 0
+      }
+    },
+    "complementary_products": {
+      "type": "related-products",
+      "settings": {
+        "products_source": "complementary",
+        "section_width": "page",
+        "gap": 32,
+        "vertical_padding": 0,
+        "horizontal_padding": 0
+      },
+      "blocks": {
+        "complementary_heading": {
+          "type": "heading",
+          "settings": {
+            "title": "t:defaults.heading",
+            "size": "h2"
+          }
+        },
+        "complementary_products_block": {
+          "type": "product-recommendations",
+          "settings": {
+            "columns": "4",
+            "columns_mobile": "2"
+          }
+        }
+      },
+      "block_order": [
+        "complementary_heading",
+        "complementary_products_block"
+      ]
+    },
+    "alternative_products": {
+      "type": "related-products",
+      "settings": {
+        "products_source": "alternative",
+        "section_width": "page",
+        "gap": 32,
+        "vertical_padding": 0,
+        "horizontal_padding": 0
+      },
+      "blocks": {
+        "alternative_heading": {
+          "type": "heading",
+          "settings": {
+            "title": "t:defaults.heading",
+            "size": "h2"
+          }
+        },
+        "alternative_products_block": {
+          "type": "product-recommendations",
+          "settings": {
+            "columns": "4",
+            "columns_mobile": "2"
+          }
+        }
+      },
+      "block_order": [
+        "alternative_heading",
+        "alternative_products_block"
+      ]
+    },
+    "piloto_ficha": {
+      "type": "custom",
+      "settings": {
+        "section_width": "page",
+        "direction": "column"
+      },
+      "blocks": {
+        "piloto_ficha_code": {
+          "type": "code",
+          "settings": {
+            "code": "<!-- Piloto rediseño: precio por unidad y aviso de pedido a confirmar en la ficha de producto. -->\n<style>\n  .pm-unit{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0 4px;font-size:14px;color:#5B6480}\n  .pm-unit b{font-weight:700;color:#1B2340}\n  .pm-chip{background:#DDF3E9;color:#168A5E;border-radius:999px;padding:3px 10px;font-weight:600}\n  .pm-confirm{margin:14px 0;padding:12px 14px;border-radius:14px;background:#FFF3CC;color:#1B2340;font-size:13px;line-height:1.45}\n  .pm-confirm strong{display:block;margin-bottom:2px}\n  .product-price-display{color:#1B2340}\n</style>\n<script>\n(function(){\n  // Unidades por paquete a partir del nombre: \"PREMIUM G60\", \"XG52\", \"x10\", \"x 48\".\n  var UNIT_RE=/(?:\\bx\\s?|\\b(?:RN|PR|P|M|G|XG|XXG|XXXG|XX|J)\\s?)(\\d{1,3})\\b(?!\\s?(?:ml|gr?|cm|kg|lts?|cc)\\b)/gi;\n  function units(name){var m,last=null;UNIT_RE.lastIndex=0;while((m=UNIT_RE.exec(name)))last=+m[1];return last>1?last:null}\n  function money(text){var n=parseFloat(String(text).replace(/[^\\d,]/g,'').replace(',','.'));return isNaN(n)?null:n}\n  function fmt(n){return '$'+n.toLocaleString('es-AR',{minimumFractionDigits:0,maximumFractionDigits:n<100?2:0})}\n  function render(){\n    var name=document.querySelector('h1.js-product-name'),price=document.getElementById('price_display'),box=document.querySelector('.js-price-container');\n    if(!name||!price||!box)return;\n    var el=document.getElementById('pm-unit');\n    if(!el){el=document.createElement('div');el.id='pm-unit';el.className='pm-unit';box.insertAdjacentElement('afterend',el)}\n    var u=units(name.textContent),p=money(price.textContent);\n    el.innerHTML=u&&p?'<span class=\"pm-chip\">'+u+' unidades</span><span><b>'+fmt(p/u)+'</b> c/u</span>':'';\n    if(!document.getElementById('pm-confirm')){\n      var c=document.createElement('div');c.id='pm-confirm';c.className='pm-confirm';\n      c.innerHTML='<strong>Pedido a confirmar</strong>Te confirmamos el stock por WhatsApp antes de que pagues. Transferencia: +5%. Compra mínima $50.000.';\n      el.insertAdjacentElement('afterend',c);\n    }\n  }\n  function start(){\n    render();\n    var price=document.getElementById('price_display');\n    if(price)new MutationObserver(render).observe(price,{childList:true,characterData:true,subtree:true});\n  }\n  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',start):start();\n})();\n</script>\n",
+            "width": "fill"
+          }
+        }
+      },
+      "block_order": [
+        "piloto_ficha_code"
+      ]
+    }
+  },
+  "order": [
+    "main_product",
+    "piloto_ficha",
+    "product_description",
+    "complementary_products",
+    "alternative_products"
+  ]
+}

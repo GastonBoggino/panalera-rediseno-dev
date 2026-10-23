@@ -1,0 +1,578 @@
+From 339f999fb86b72c8b9c42db71cb961bfd7cf0a8d Mon Sep 17 00:00:00 2001
+From: gaston <gastonboggino1@gmail.com>
+Date: Thu, 22 Oct 2026 21:05:40 -0300
+Subject: [PATCH 1/6] Avisos a Tiendanube: modo live solo para tiendas de
+ prueba permitidas (real bloqueada), con reintentos
+
+---
+ app/api/tiendanube/route.ts           |   6 +
+ app/api/tiendanube/statusPush.ts      | 214 ++++++++++++++++++++++++++
+ app/api/warehouse/route.ts            |   3 +
+ app/page.tsx                          |  27 +++-
+ package.json                          |   2 +-
+ tests/tiendanube-status-push.test.mjs | 176 +++++++++++++++++++++
+ worker/index.ts                       |   7 +
+ 7 files changed, 433 insertions(+), 2 deletions(-)
+ create mode 100644 app/api/tiendanube/statusPush.ts
+ create mode 100644 tests/tiendanube-status-push.test.mjs
+
+diff --git a/app/api/tiendanube/route.ts b/app/api/tiendanube/route.ts
+index 8540050..0ac1f83 100644
+--- a/app/api/tiendanube/route.ts
++++ b/app/api/tiendanube/route.ts
+@@ -7,6 +7,7 @@ import catalogData from "../../productCatalog.generated.json";
+ import { isBeforeOrderImportStart, webQuotationWorkflowSql } from "../../webOrderRules";
+ import { readTiendanube, hasNextPage, orderImportFields } from "./http";
+ import { acquireCatalogJob, catalogTotals, releaseCatalogJob, syncSchema, type CatalogJob } from "./syncJob";
++import { statusPushReport } from "./statusPush";
+ 
+ type JsonRecord = Record<string, unknown>;
+ type Session = { user_name: string; role: string };
+@@ -234,6 +235,11 @@ export async function GET(request: Request) {
+   const session = await authenticatedSession(request);
+   if (!session) return Response.json({ error: "Sesión requerida." }, { status: 401 });
+   if (!canReadTiendanube(session)) return Response.json({ error: "Sin permisos para consultar Tiendanube." }, { status: 403 });
++  // Avisos de estado a Tiendanube: solo simulación, no consulta la API.
++  if (new URL(request.url).searchParams.get("view") === "status-push") {
++    if (!env.DB) return Response.json({ error: "La base central no está disponible." }, { status: 503 });
++    return Response.json(await statusPushReport(env.DB));
++  }
+   const config = configuration();
+   if (!config.storeId || !config.accessToken) {
+     return Response.json({ configured: false, connected: false, readOnly: true, message: "Credenciales pendientes" });
+diff --git a/app/api/tiendanube/statusPush.ts b/app/api/tiendanube/statusPush.ts
+new file mode 100644
+index 0000000..78693f3
+--- /dev/null
++++ b/app/api/tiendanube/statusPush.ts
+@@ -0,0 +1,214 @@
++// Aviso del estado de los pedidos web a Tiendanube.
++// Los triggers encolan cada cambio de estado en la misma transacción que lo produce.
++// TIENDANUBE_STATUS_PUSH:
++//   (vacío)    apagado: la cola se llena y no se procesa.
++//   simulate   arma la solicitud que se enviaría y la registra, sin red.
++//   live       la envía de verdad, SOLO si la tienda está en TIENDANUBE_WRITE_STORES.
++//              La tienda real (6357775) está bloqueada en el código, figure o no en la lista.
++// Ver docs/DISENO-ERP-A-TIENDANUBE-20261022.md.
++
++export type StatusPushTarget =
++  | 'quote_sent_note' | 'confirmed_note'
++  | 'in_preparation' | 'ready_for_pickup' | 'packed' | 'dispatched' | 'delivered'
++  | 'cancelled';
++
++export type StatusPushEnv = {
++  DB: D1Database; TIENDANUBE_STATUS_PUSH?: string; TIENDANUBE_WRITE_STORES?: string;
++  TIENDANUBE_STORE_ID?: string; TIENDANUBE_ACCESS_TOKEN?: string; TIENDANUBE_USER_AGENT?: string;
++};
++export const TIENDA_REAL = '6357775';
++const MAX_INTENTOS = 5;
++type Row = { order_id: string; target: StatusPushTarget; platform_id: string; created_at: string; attempts?: number };
++type Order = { order_id: string; platform_id: string; source: string; mode: string; commercial_status: string; delivery_status: string; updated_by: string };
++
++const webOrder = `lower(e.source) LIKE '%tiendanube%'`;
++const nowSql = `strftime('%Y-%m-%dT%H:%M:%fZ','now')`;
++const enqueue = (id: string, target: StatusPushTarget) => `INSERT OR IGNORE INTO tiendanube_status_push(order_id,target,platform_id,status,created_at,updated_at)
++ SELECT e.order_id,'${target}',e.platform_id,'pending',${nowSql},${nowSql} FROM external_orders e WHERE e.order_id=${id} AND ${webOrder}`;
++
++// Etapas de preparación/entrega: Tiendanube no acepta volver atrás.
++export const fulfillmentRank: Partial<Record<StatusPushTarget, number>> = {in_preparation: 1, ready_for_pickup: 2, packed: 2, dispatched: 3, delivered: 4};
++
++export const tiendanubeStatusPushSchema = [
++  `CREATE TABLE IF NOT EXISTS tiendanube_status_push (
++ order_id TEXT NOT NULL, target TEXT NOT NULL, platform_id TEXT NOT NULL DEFAULT '',
++ status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','simulated','skipped','sent','failed')), attempts INTEGER NOT NULL DEFAULT 0,
++ request TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '',
++ created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(order_id,target))`,
++  `CREATE INDEX IF NOT EXISTS tiendanube_status_push_due ON tiendanube_status_push(status,created_at)`,
++  // Cotización enviada al cliente (la importación web deja quote_sent_at vacío).
++  `CREATE TRIGGER IF NOT EXISTS tn_push_quote_sent AFTER UPDATE OF quote_sent_at ON order_workflow
++ WHEN COALESCE(OLD.quote_sent_at,'')='' AND COALESCE(NEW.quote_sent_at,'')<>'' BEGIN ${enqueue('NEW.order_id', 'quote_sent_note')}; END`,
++  `CREATE TRIGGER IF NOT EXISTS tn_push_confirmed AFTER UPDATE OF commercial_status ON order_workflow
++ WHEN NEW.commercial_status='confirmed' AND OLD.commercial_status<>NEW.commercial_status BEGIN ${enqueue('NEW.order_id', 'confirmed_note')}; END`,
++  // Una cancelación que vino de la web no se reenvía a Tiendanube.
++  `CREATE TRIGGER IF NOT EXISTS tn_push_cancelled AFTER UPDATE OF commercial_status ON order_workflow
++ WHEN NEW.commercial_status IN ('cancelled','rejected') AND OLD.commercial_status NOT IN ('cancelled','rejected') AND COALESCE(NEW.updated_by,'')<>'Tiendanube'
++ BEGIN ${enqueue('NEW.order_id', 'cancelled')}; END`,
++  `CREATE TRIGGER IF NOT EXISTS tn_push_session_insert AFTER INSERT ON order_sessions
++ WHEN NEW.status='in_progress' BEGIN ${enqueue('NEW.order_id', 'in_preparation')}; END`,
++  `CREATE TRIGGER IF NOT EXISTS tn_push_session_update AFTER UPDATE OF status ON order_sessions
++ WHEN NEW.status='in_progress' AND OLD.status<>NEW.status BEGIN ${enqueue('NEW.order_id', 'in_preparation')}; END`,
++  ...([['ready_pickup', 'ready_for_pickup'], ['ready_dispatch', 'packed'], ['in_transit', 'dispatched'], ['delivered', 'delivered']] as const).map(([status, target]) =>
++    `CREATE TRIGGER IF NOT EXISTS tn_push_delivery_${status} AFTER UPDATE OF delivery_status ON order_workflow
++ WHEN NEW.delivery_status='${status}' AND OLD.delivery_status<>NEW.delivery_status BEGIN ${enqueue('NEW.order_id', target)}; END`),
++  `CREATE TRIGGER IF NOT EXISTS tn_push_delivery_record AFTER INSERT ON deliveries BEGIN ${enqueue('NEW.order_id', 'delivered')}; END`,
++];
++
++export async function ensureTiendanubeStatusPush(db: D1Database) {
++  await db.batch(tiendanubeStatusPushSchema.map(sql => db.prepare(sql)));
++}
++
++const date = (iso: string) => new Date(iso).toLocaleString('es-AR', {timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
++
++// Solicitud que se enviaría a la API de Tiendanube (v1, /{store_id} se agrega al enviar).
++export function statusPushRequest(row: Row, order: Order) {
++  const id = encodeURIComponent(row.platform_id);
++  const fo = `/orders/${id}/fulfillment-orders/{fulfillment_order_id}`;
++  const note = (text: string) => ({method: 'PUT', path: `/orders/${id}`, body: {owner_note: `ERP · ${text} · ${date(row.created_at)}`},
++    scope: 'write_orders', customer: 'No lo ve: es una nota interna. El aviso al cliente sigue por WhatsApp.'});
++  const step = (status: string, customer: string) => ({method: 'PATCH', path: fo, body: {status}, scope: 'write_fulfillment_orders', customer});
++  switch (row.target) {
++    case 'quote_sent_note': return note('Cotización enviada');
++    case 'confirmed_note': return note('Confirmado por el cliente');
++    case 'in_preparation': return step('IN_PREPARATION', '«En preparación»');
++    case 'ready_for_pickup': return step('READY_FOR_PICKUP', '«Listo para retirar»');
++    case 'packed': return step('PACKED', '«Empaquetado»');
++    case 'dispatched': return step('DISPATCHED', '«Enviado»');
++    case 'delivered': return {method: 'POST', path: `${fo}/tracking-events`, body: {status: 'delivered'}, then: {method: 'POST', path: `/orders/${id}/close`},
++      scope: 'write_fulfillment_orders, write_orders', customer: '«Entregado»'};
++    case 'cancelled': return {method: 'POST', path: `/orders/${id}/cancel`,
++      body: {reason: order.commercial_status === 'rejected' ? 'customer' : 'inventory', email: true, restock: false},
++      scope: 'write_orders', customer: '«Cancelado» y e-mail de Tiendanube'};
++  }
++}
++
++type Fetch = typeof fetch;
++class EnvioError extends Error {
++  status: number;
++  constructor(status: number, message: string) { super(message); this.status = status; }
++}
++
++// Envío real a la API. Solo se construye para una tienda permitida que no sea la real.
++export function liveSender(env: StatusPushEnv, fetchImpl: Fetch = (input, init) => fetch(input, init)) {
++  const store = String(env.TIENDANUBE_STORE_ID || '').trim();
++  const permitidas = String(env.TIENDANUBE_WRITE_STORES || '').split(',').map((s) => s.trim()).filter(Boolean);
++  if (!store || store === TIENDA_REAL || permitidas.includes(TIENDA_REAL) || !permitidas.includes(store) || !env.TIENDANUBE_ACCESS_TOKEN) {
++    throw new Error('Envío real bloqueado: la tienda no está en la lista de tiendas de prueba permitidas.');
++  }
++  const api = async (method: string, path: string, body?: unknown) => {
++    const response = await fetchImpl(`https://api.tiendanube.com/v1/${store}${path}`, {
++      method,
++      headers: { Authentication: `bearer ${env.TIENDANUBE_ACCESS_TOKEN}`, 'User-Agent': env.TIENDANUBE_USER_AGENT || 'PanaleraMayoristaRosario', 'Content-Type': 'application/json' },
++      body: body === undefined ? undefined : JSON.stringify(body),
++    });
++    const text = await response.text();
++    if (!response.ok) throw new EnvioError(response.status, `${method} ${path.split('?')[0].replace(/\/\d{5,}/g, '/{id}')} → ${response.status}: ${text.slice(0, 180)}`);
++    return text ? JSON.parse(text) : null;
++  };
++  const fulfillment = async (id: string) => {
++    const lista = await api('GET', `/orders/${id}/fulfillment-orders`);
++    const fo = Array.isArray(lista) ? lista[0] : null;
++    if (!fo?.id) throw new EnvioError(422, 'El pedido no tiene orden de preparación en Tiendanube.');
++    return fo as { id: string; status?: string };
++  };
++  return async (row: Row, request: ReturnType<typeof statusPushRequest>) => {
++    const id = encodeURIComponent(row.platform_id);
++    switch (row.target) {
++      case 'quote_sent_note': case 'confirmed_note': {
++        // La nota se agrega a la que ya tenga el pedido: no pisa lo que escriba el local.
++        const linea = String((request.body as {owner_note: string}).owner_note);
++        const actual = String((await api('GET', `/orders/${id}?fields=owner_note`))?.owner_note || '');
++        const clave = linea.split(' · ').slice(0, 2).join(' · ');
++        if (actual.includes(clave)) return 'La nota ya estaba en Tiendanube.';
++        await api('PUT', `/orders/${id}`, { owner_note: actual ? `${actual}\n${linea}` : linea });
++        return 'Nota interna agregada.';
++      }
++      case 'delivered': {
++        const fo = await fulfillment(id);
++        // Envío: evento "delivered" después de DISPATCHED. Retiro: no hay despacho, se marca DELIVERED.
++        if (String(fo.status).toUpperCase() === 'DISPATCHED') await api('POST', `/orders/${id}/fulfillment-orders/${fo.id}/tracking-events`, { status: 'delivered', happened_at: new Date().toISOString() });
++        else await api('PATCH', `/orders/${id}/fulfillment-orders/${fo.id}`, { status: 'DELIVERED' });
++        await api('POST', `/orders/${id}/close`, {});
++        return 'Entregado y pedido cerrado en Tiendanube.';
++      }
++      case 'cancelled':
++        await api('POST', `/orders/${id}/cancel`, request.body);
++        return 'Pedido cancelado en Tiendanube.';
++      default: {
++        const fo = await fulfillment(id);
++        const status = String((request.body as {status: string}).status);
++        await api('PATCH', `/orders/${id}/fulfillment-orders/${fo.id}`, { status });
++        return `Preparación: ${status}.`;
++      }
++    }
++  };
++}
++
++// Procesa la cola. Solo actúa en modo "simulate" o "live"; con cualquier otro valor no hace nada.
++export async function flushTiendanubeStatusPush(env: StatusPushEnv, now = new Date(), limit = 20, fetchImpl?: Fetch) {
++  const summary = {simulated: 0, skipped: 0, sent: 0, failed: 0, mode: env.TIENDANUBE_STATUS_PUSH || 'off'};
++  if (env.TIENDANUBE_STATUS_PUSH !== 'simulate' && env.TIENDANUBE_STATUS_PUSH !== 'live') return summary;
++  let enviar: ReturnType<typeof liveSender> | null = null;
++  if (env.TIENDANUBE_STATUS_PUSH === 'live') {
++    try { enviar = liveSender(env, fetchImpl); } catch { return {...summary, mode: 'live-bloqueado'}; }
++  }
++  await ensureTiendanubeStatusPush(env.DB);
++  const due = await env.DB.prepare(`SELECT order_id,target,platform_id,created_at,attempts FROM tiendanube_status_push
++ WHERE status='pending' ORDER BY created_at,rowid LIMIT ?`).bind(limit).all<Row>();
++  const instant = now.toISOString();
++  for (const row of due.results) {
++    const order = await env.DB.prepare(`SELECT e.order_id,e.platform_id,e.source,e.mode,w.commercial_status,w.delivery_status,w.updated_by
++ FROM external_orders e JOIN order_workflow w ON w.order_id=e.order_id WHERE e.order_id=?`).bind(row.order_id).first<Order>();
++    const rank = fulfillmentRank[row.target];
++    let skip = '';
++    if (!order) skip = 'El pedido ya no existe en el ERP.';
++    else if (!row.platform_id) skip = 'El pedido no tiene número de Tiendanube.';
++    else if (rank) {
++      const done = await env.DB.prepare(`SELECT target FROM tiendanube_status_push WHERE order_id=? AND status IN ('simulated','sent')`).bind(row.order_id).all<{target: StatusPushTarget}>();
++      const highest = Math.max(0, ...done.results.map(item => fulfillmentRank[item.target] || 0));
++      if (highest >= rank) skip = 'Tiendanube no acepta volver a una etapa anterior o repetida.';
++      else if (done.results.some(item => item.target === 'cancelled')) skip = 'El pedido ya se canceló en Tiendanube.';
++    }
++    if (skip) {
++      await env.DB.prepare(`UPDATE tiendanube_status_push SET status='skipped',detail=?,updated_at=? WHERE order_id=? AND target=? AND status='pending'`)
++        .bind(skip, instant, row.order_id, row.target).run();
++      summary.skipped++;
++      continue;
++    }
++    const request = statusPushRequest(row, order!);
++    if (!enviar) {
++      await env.DB.prepare(`UPDATE tiendanube_status_push SET status='simulated',request=?,detail=?,updated_at=? WHERE order_id=? AND target=? AND status='pending'`)
++        .bind(JSON.stringify(request), `Simulado (no se envió). Cliente: ${request.customer}`, instant, row.order_id, row.target).run();
++      summary.simulated++;
++      continue;
++    }
++    try {
++      const detalle = await enviar(row, request);
++      await env.DB.prepare(`UPDATE tiendanube_status_push SET status='sent',request=?,detail=?,attempts=attempts+1,updated_at=? WHERE order_id=? AND target=? AND status='pending'`)
++        .bind(JSON.stringify(request), `${detalle} Cliente: ${request.customer}`, instant, row.order_id, row.target).run();
++      summary.sent++;
++    } catch (error) {
++      const codigo = error instanceof EnvioError ? error.status : 0;
++      // Conexión, límite de pedidos (429) o error de Tiendanube (5xx): se reintenta en el próximo ciclo.
++      const reintentar = (codigo === 0 || codigo === 429 || codigo >= 500) && Number(row.attempts || 0) + 1 < MAX_INTENTOS;
++      const mensaje = error instanceof Error ? error.message : 'Error desconocido';
++      await env.DB.prepare(`UPDATE tiendanube_status_push SET status=?,request=?,detail=?,attempts=attempts+1,updated_at=? WHERE order_id=? AND target=? AND status='pending'`)
++        .bind(reintentar ? 'pending' : 'failed', JSON.stringify(request), reintentar ? `Reintentando: ${mensaje}` : `No se pudo enviar: ${mensaje}`, instant, row.order_id, row.target).run();
++      if (!reintentar) summary.failed++;
++    }
++  }
++  return summary;
++}
++
++export async function statusPushReport(db: D1Database, limit = 50) {
++  await ensureTiendanubeStatusPush(db);
++  const counts = await db.prepare(`SELECT status,COUNT(*) total FROM tiendanube_status_push GROUP BY status`).all<{status: string; total: number}>();
++  const latest = await db.prepare(`SELECT order_id,platform_id,target,status,request,detail,created_at,updated_at FROM tiendanube_status_push
++ ORDER BY updated_at DESC,order_id LIMIT ?`).bind(limit).all<Record<string, string>>();
++  return {
++    mode: 'queue',
++    counts: Object.fromEntries(counts.results.map(item => [item.status, item.total])),
++    latest: latest.results.map(item => ({...item, request: item.request ? JSON.parse(item.request) : null})),
++  };
++}
+diff --git a/app/api/warehouse/route.ts b/app/api/warehouse/route.ts
+index 33b1682..8a81456 100644
+--- a/app/api/warehouse/route.ts
++++ b/app/api/warehouse/route.ts
+@@ -1,5 +1,6 @@
+ import {readCustomerScore,readQuotationScores} from "./customerScore";
+ import {ensurePickupReadyWhatsApp} from "./pickupReadyWhatsApp";
++import {ensureTiendanubeStatusPush} from "../tiendanube/statusPush";
+ import {exchangeTicketHistory} from "./exchangeHistory";
+ import {boxAge} from "../../boxAgeRules";
+ import { reservationShortagesSql } from "./reservationShortages";
+@@ -225,6 +226,7 @@ async function ensureWarehouseExtensions(db: D1Database) {
+       // initialization would reset customer price-list choices.
+       await db.prepare(boxCustomerContactsSchema).run();
+       await ensurePickupReadyWhatsApp(db);
++      await ensureTiendanubeStatusPush(db);
+       return;
+     }
+   }
+@@ -377,6 +379,7 @@ async function ensureWarehouseExtensions(db: D1Database) {
+     if (/^\d{4}$/.test(account.pin)) await db.prepare("UPDATE warehouse_users SET pin=? WHERE name=?").bind(await hashPin(account.name, account.pin), account.name).run();
+   }
+   await ensurePickupReadyWhatsApp(db);
++  await ensureTiendanubeStatusPush(db);
+   })().catch((error) => {
+     warehouseSchemaReady = null;
+     throw error;
+diff --git a/app/page.tsx b/app/page.tsx
+index 8553e40..834cfcf 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -1635,6 +1635,9 @@ function WarehouseApp({ onSessionCleared, allowSessionRestore }: { onSessionClea
+   const [warehouseEvents, setWarehouseEvents] = useState<WarehouseEventRecord[]>([]);
+   const [ecommerceSync, setEcommerceSync] = useState<EcommerceSyncRecord[]>([]);
+   const [tiendanubeStatus, setTiendanubeStatus] = useState<{ configured: boolean; connected: boolean; storeName?: string; message?: string }>({ configured: false, connected: false });
++  // Avisos de estado a Tiendanube (enviados a tiendas de prueba habilitadas o simulados).
++  const [statusPush, setStatusPush] = useState<{ counts: Record<string, number>; latest: Array<{ order_id: string; target: string; status: string; detail: string; updated_at: string; request: { method: string; path: string; customer: string } | null }> } | null>(null);
++  const [statusPushError, setStatusPushError] = useState("");
+   const [tiendanubeSyncing, setTiendanubeSyncing] = useState(false);
+   const [tiendanubeMessage, setTiendanubeMessage] = useState("");
+   const [offlineActions, setOfflineActions] = useState<OfflineAction[]>([]);
+@@ -2541,6 +2544,19 @@ if (has("productBarcodeAliases")) setProductBarcodeAliases(current => catalogPar
+     setMenuExpanded(menuPinned);
+   }, [menuPinned]);
+ 
++  const loadStatusPush = async () => {
++    try {
++      const response = await fetch("/api/tiendanube?view=status-push", { cache: "no-store" });
++      if (!response.ok) throw new Error();
++      setStatusPush(await response.json());
++      setStatusPushError("");
++    } catch { setStatusPushError("No se pudieron leer los avisos simulados."); }
++  };
++  useEffect(() => {
++    if (screen !== "system-health" || nativeApp || user?.role !== "Administrador") return;
++    void loadStatusPush();
++  }, [screen, nativeApp, user?.role]);
++
+   useEffect(() => {
+     if (!user) return;
+     let cancelled = false;
+@@ -9393,7 +9409,7 @@ if (has("productBarcodeAliases")) setProductBarcodeAliases(current => catalogPar
+               <div className="screenTitle"><ActionIcon tone="green"><Activity size={22} /></ActionIcon><div><p>ADMINISTRACIÓN</p><h1>Salud del sistema</h1></div></div>
+               <section className="systemHealthIntro">
+                 <div><h2>Control administrativo</h2><FriendlyHelp name="Ayuda de salud del sistema">Concentrá aquí las señales técnicas y operativas que requieren seguimiento. No interfiere con las pantallas diarias de venta, preparación o PDA.</FriendlyHelp></div>
+-                <button className="secondaryButton compactAction" onClick={() => void loadWarehouseScopes(["admin", "orders", "catalog"])}><RefreshCw size={17} />Actualizar</button>
++                <button className="secondaryButton compactAction" onClick={() => { void loadWarehouseScopes(["admin", "orders", "catalog"]); void loadStatusPush(); }}><RefreshCw size={17} />Actualizar</button>
+               </section>
+               <div className="systemHealthGrid">
+                 <article className={centralOnline ? "ok" : "warning"}><span><Globe2 size={19} /></span><div><small>Base central</small><b>{centralOnline ? "Conectada" : "Sin conexión"}</b><em>{centralOnline ? "La última lectura terminó correctamente." : centralError || "Revisar conectividad."}</em></div></article>
+@@ -9412,6 +9428,15 @@ if (has("productBarcodeAliases")) setProductBarcodeAliases(current => catalogPar
+                   <article><span className={operationalTasks.some((task) => task.status === "pending") ? "pending" : "done"}>{operationalTasks.some((task) => task.status === "pending") ? <AlertTriangle size={17} aria-hidden="true" /> : <CircleCheck size={17} aria-hidden="true" />}</span><div><b>Tareas operativas</b><small>{operationalTasks.filter((task) => task.status === "pending").length} pendientes de {operationalTasks.length} registradas.</small></div><button className="secondaryButton compactAction" onClick={() => go("task-history")}>Ver historial</button></article>
+                 </div></section>
+               </div>
++              <section className="systemHealthPanel"><header><div><Globe2 size={20} /><span><h2>Avisos a Tiendanube</h2><p>Lo que el ERP le avisa a la web en cada cambio de estado. Solo se envía de verdad a tiendas de prueba habilitadas; si no, queda simulado.</p></span></div><strong>{(statusPush?.counts.sent || 0) + (statusPush?.counts.simulated || 0)}</strong></header><div className="systemAuditList">
++                {statusPushError && <div className="emptyModule"><AlertTriangle size={26} /><b>{statusPushError}</b><span>Tocá Actualizar para reintentar.</span></div>}
++                {(statusPush?.latest || []).slice(0, 20).map((item) => {
++                  const stage: Record<string, string> = { quote_sent_note: "Cotización enviada", confirmed_note: "Confirmado", in_preparation: "En preparación", ready_for_pickup: "Listo para retirar", packed: "Empaquetado", dispatched: "Enviado", delivered: "Entregado", cancelled: "Cancelado" };
++                  const label = item.status === "sent" ? "Enviado" : item.status === "failed" ? "No se pudo enviar" : item.status === "simulated" ? "Simulado" : item.status === "skipped" ? "Omitido" : "Pendiente";
++                  return <article key={`${item.order_id}-${item.target}`}><span className="auditType order" title={label} aria-label={label}>{item.status === "skipped" || item.status === "failed" ? <AlertTriangle size={15} aria-hidden="true" /> : <CircleCheck size={15} aria-hidden="true" />}</span><div><b>#{item.order_id} · {stage[item.target] || item.target} · {label}</b><p>{item.request ? `${item.request.method} ${item.request.path}` : item.detail}</p><small>{item.request ? `Cliente: ${item.request.customer}` : ""} · {formatOperationalDate(item.updated_at)}</small></div></article>;
++                })}
++                {statusPush && !statusPush.latest.length && <div className="emptyModule"><Globe2 size={26} /><b>Sin avisos todavía</b><span>Aparecen cuando un pedido web cambia de estado: cotización enviada, confirmado, preparación, listo, reparto, entrega o cancelación.</span></div>}
++              </div></section>
+             </>
+           )}
+ 
+diff --git a/package.json b/package.json
+index 08f72a8..eb48828 100644
+--- a/package.json
++++ b/package.json
+@@ -14,7 +14,7 @@
+     "db:migrate:local": "wrangler d1 migrations apply panalera-mayorista-rosario --local",
+     "db:migrate:production": "wrangler d1 migrations apply panalera-mayorista-rosario --remote",
+     "design:check": "node scripts/check-design-system.mjs",
+-    "test": "npm run design:check && npm run build && node --test tests/operational-indicators.test.mjs tests/georef-address.test.mjs tests/rendered-html.test.mjs tests/hardening-contract.test.mjs tests/warehouse-rules.test.ts tests/order-quantity-rules.test.ts tests/order-ocr-rules.test.ts tests/order-catalog-table.test.ts tests/order-whatsapp-formats.test.ts tests/stock-closure-rules.test.ts tests/box-age-rules.test.ts tests/pickup-ready-whatsapp.test.mjs tests/pickup-ready-delivery.test.mjs tests/box-sector-policy.test.ts tests/order-suggestions.test.ts tests/order-matching-rules.test.ts tests/picking-product-rules.test.ts tests/picking-completion.test.ts tests/preserved-preparation.test.ts tests/order-preparation-state.test.ts tests/incident-pricing.test.ts tests/local-incident-equivalence.test.ts tests/local-incident-whatsapp.test.ts tests/courier-quote-rules.test.ts tests/price-label-rules.test.ts tests/customer-formatting.test.ts tests/authorization.test.ts tests/preparation-changes.test.ts tests/pickup-remittance.test.ts tests/cash-register-rules.test.ts tests/access.test.ts tests/stock-availability.test.ts tests/courier-route-pdf.test.ts tests/delivery-profile.test.ts tests/delivery-instructions.test.ts tests/backup-recovery.test.mjs tests/tiendanube-http.test.ts tests/sync-job.test.ts tests/offline-queue.test.ts tests/picking-replay.test.ts tests/pda-memory.test.ts tests/pda-launcher-refresh.test.mjs tests/web-order-rules.test.ts tests/business-policy.test.ts tests/cancelled-return-atomic.test.ts tests/sale-request.test.ts tests/web-customer-import.test.ts tests/snapshot-loader.test.ts tests/shared-order-detail.test.ts tests/database-unavailable.test.ts tests/mutation-failure.test.ts tests/backup-configuration.test.mjs tests/price-review-actions.test.ts tests/price-import-selection.test.ts tests/list-pagination.test.mjs tests/pending-checkout-cart.test.mjs tests/remittance-document.test.mjs tests/purchase-pagination.test.mjs tests/commercial-reports.test.mjs tests/media-backup.test.mjs tests/retention.test.mjs tests/internal-credit-notes.test.mjs tests/courier-box-release.test.mjs tests/quotation-cleanup.test.mjs tests/whatsapp-extension-rules.test.ts tests/customer-active-orders.test.ts tests/customer-score.test.ts",
++    "test": "npm run design:check && npm run build && node --test tests/operational-indicators.test.mjs tests/georef-address.test.mjs tests/rendered-html.test.mjs tests/hardening-contract.test.mjs tests/warehouse-rules.test.ts tests/order-quantity-rules.test.ts tests/order-ocr-rules.test.ts tests/order-catalog-table.test.ts tests/order-whatsapp-formats.test.ts tests/stock-closure-rules.test.ts tests/box-age-rules.test.ts tests/pickup-ready-whatsapp.test.mjs tests/tiendanube-status-push.test.mjs tests/pickup-ready-delivery.test.mjs tests/box-sector-policy.test.ts tests/order-suggestions.test.ts tests/order-matching-rules.test.ts tests/picking-product-rules.test.ts tests/picking-completion.test.ts tests/preserved-preparation.test.ts tests/order-preparation-state.test.ts tests/incident-pricing.test.ts tests/local-incident-equivalence.test.ts tests/local-incident-whatsapp.test.ts tests/courier-quote-rules.test.ts tests/price-label-rules.test.ts tests/customer-formatting.test.ts tests/authorization.test.ts tests/preparation-changes.test.ts tests/pickup-remittance.test.ts tests/cash-register-rules.test.ts tests/access.test.ts tests/stock-availability.test.ts tests/courier-route-pdf.test.ts tests/delivery-profile.test.ts tests/delivery-instructions.test.ts tests/backup-recovery.test.mjs tests/tiendanube-http.test.ts tests/sync-job.test.ts tests/offline-queue.test.ts tests/picking-replay.test.ts tests/pda-memory.test.ts tests/pda-launcher-refresh.test.mjs tests/web-order-rules.test.ts tests/business-policy.test.ts tests/cancelled-return-atomic.test.ts tests/sale-request.test.ts tests/web-customer-import.test.ts tests/snapshot-loader.test.ts tests/shared-order-detail.test.ts tests/database-unavailable.test.ts tests/mutation-failure.test.ts tests/backup-configuration.test.mjs tests/price-review-actions.test.ts tests/price-import-selection.test.ts tests/list-pagination.test.mjs tests/pending-checkout-cart.test.mjs tests/remittance-document.test.mjs tests/purchase-pagination.test.mjs tests/commercial-reports.test.mjs tests/media-backup.test.mjs tests/retention.test.mjs tests/internal-credit-notes.test.mjs tests/courier-box-release.test.mjs tests/quotation-cleanup.test.mjs tests/whatsapp-extension-rules.test.ts tests/customer-active-orders.test.ts tests/customer-score.test.ts",
+     "verify": "npm run typecheck && npm run lint && npm test && npm run test:integration",
+     "verify:ci": "npm run verify && npm run test:browser -- --skip-build && npm audit --omit=dev --audit-level=high",
+     "test:integration": "node scripts/run-integration-tests.mjs",
+diff --git a/tests/tiendanube-status-push.test.mjs b/tests/tiendanube-status-push.test.mjs
+new file mode 100644
+index 0000000..99039a1
+--- /dev/null
++++ b/tests/tiendanube-status-push.test.mjs
+@@ -0,0 +1,176 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import {DatabaseSync} from 'node:sqlite';
++import {readFileSync} from 'node:fs';
++import {ensureTiendanubeStatusPush,flushTiendanubeStatusPush,statusPushReport,liveSender} from '../app/api/tiendanube/statusPush.ts';
++
++const now=new Date('2026-10-22T12:00:00Z');
++function fixture(){
++ const sql=new DatabaseSync(':memory:');
++ sql.exec(`CREATE TABLE external_orders(order_id TEXT PRIMARY KEY,platform_id TEXT,source TEXT,mode TEXT);
++ CREATE TABLE order_workflow(order_id TEXT PRIMARY KEY,commercial_status TEXT,delivery_status TEXT,quote_sent_at TEXT DEFAULT '',updated_by TEXT DEFAULT '',updated_at TEXT);
++ CREATE TABLE order_sessions(order_id TEXT PRIMARY KEY,status TEXT);
++ CREATE TABLE deliveries(order_id TEXT PRIMARY KEY);`);
++ const prepare=(query,values=[])=>({
++  bind(...args){return prepare(query,args);},
++  execute(){const result=sql.prepare(query).run(...values);return {meta:{changes:Number(result.changes)}};},
++  async run(){return this.execute();},
++  async first(){return sql.prepare(query).get(...values)||null;},
++  async all(){return {results:sql.prepare(query).all(...values)};},
++ });
++ const db={prepare,async batch(statements){sql.exec('BEGIN');try{const r=statements.map(s=>s.execute());sql.exec('COMMIT');return r;}catch(e){sql.exec('ROLLBACK');throw e;}}};
++ const web=(id='1043',mode='Retiro en depósito',source='Tiendanube · API')=>{
++  sql.prepare('INSERT INTO external_orders VALUES(?,?,?,?)').run(id,'P9'+id,source,mode);
++  sql.prepare("INSERT INTO order_workflow(order_id,commercial_status,delivery_status,updated_at) VALUES(?,'quote_sent','pending',?)").run(id,now.toISOString());
++  return id;
++ };
++ // Como el ERP: todos los campos en una misma UPDATE.
++ const set=(id,fields)=>sql.prepare(`UPDATE order_workflow SET ${Object.keys(fields).map(k=>k+'=?').join(',')} WHERE order_id=?`).run(...Object.values(fields),id);
++ const rows=(id='1043')=>sql.prepare('SELECT target,status,request,detail FROM tiendanube_status_push WHERE order_id=? ORDER BY created_at,rowid').all(id);
++ return {sql,db,web,set,rows,env:{DB:db,TIENDANUBE_STATUS_PUSH:'simulate'}};
++}
++
++test('el envío real está encapsulado y la tienda real bloqueada',()=>{
++ const source=readFileSync(new URL('../app/api/tiendanube/statusPush.ts',import.meta.url),'utf8');
++ // El envío real existe, pero solo dentro de liveSender y con la tienda real bloqueada.
++ assert.match(source,/store === TIENDA_REAL \|\| permitidas\.includes\(TIENDA_REAL\)/);
++ assert.equal((source.match(/api\.tiendanube\.com/g)||[]).length,1,'una sola URL de la API, dentro de liveSender');
++});
++
++test('recorrido completo de un retiro: encola y simula cada etapa en orden',async()=>{
++ const f=fixture();await ensureTiendanubeStatusPush(f.db);
++ f.web();
++ assert.equal(f.rows().length,0,'importar no avisa nada');
++ f.set('1043',{quote_sent_at:now.toISOString()});
++ f.set('1043',{commercial_status:'confirmed'});
++ f.sql.prepare("INSERT INTO order_sessions VALUES('1043','in_progress')").run();
++ f.set('1043',{delivery_status:'ready_pickup'});
++ f.set('1043',{delivery_status:'delivered'});
++ f.sql.prepare("INSERT INTO deliveries VALUES('1043')").run();
++ assert.deepEqual(f.rows().map(r=>r.target),['quote_sent_note','confirmed_note','in_preparation','ready_for_pickup','delivered']);
++ const summary=await flushTiendanubeStatusPush(f.env,now);
++ assert.deepEqual(summary,{simulated:5,skipped:0,sent:0,failed:0,mode:'simulate'});
++ const byTarget=Object.fromEntries(f.rows().map(r=>[r.target,{...r,request:JSON.parse(r.request)}]));
++ assert.equal(byTarget.quote_sent_note.request.method,'PUT');
++ assert.equal(byTarget.quote_sent_note.request.path,'/orders/P91043');
++ assert.match(byTarget.quote_sent_note.request.body.owner_note,/^ERP · Cotización enviada/);
++ assert.deepEqual(byTarget.ready_for_pickup.request.body,{status:'READY_FOR_PICKUP'});
++ assert.equal(byTarget.delivered.request.then.path,'/orders/P91043/close');
++ assert.ok(f.rows().every(r=>r.status==='simulated'));
++});
++
++test('envío: empaquetado y despachado; nunca vuelve a una etapa anterior',async()=>{
++ const f=fixture();await ensureTiendanubeStatusPush(f.db);
++ f.web('2001','Envío a domicilio');
++ f.set('2001',{delivery_status:'ready_dispatch'});
++ f.set('2001',{delivery_status:'in_transit'});
++ await flushTiendanubeStatusPush(f.env,now);
++ // Una sesión de preparación tardía (p. ej. reapertura) no retrocede en Tiendanube.
++ f.sql.prepare("INSERT INTO order_sessions VALUES('2001','in_progress')").run();
++ const summary=await flushTiendanubeStatusPush(f.env,now);
++ assert.equal(summary.skipped,1);
++ const rows=Object.fromEntries(f.rows('2001').map(r=>[r.target,r]));
++ assert.equal(rows.packed.status,'simulated');
++ assert.equal(JSON.parse(rows.dispatched.request).body.status,'DISPATCHED');
++ assert.equal(rows.in_preparation.status,'skipped');
++ assert.match(rows.in_preparation.detail,/no acepta volver/);
++});
++
++test('cancelación: motivo según el caso y sin reenviar las que vienen de la web',async()=>{
++ const f=fixture();await ensureTiendanubeStatusPush(f.db);
++ f.web('3001');f.web('3002');
++ f.set('3001',{commercial_status:'cancelled',delivery_status:'cancelled',updated_by:'Ale Mengarelli'});
++ f.set('3002',{commercial_status:'cancelled',delivery_status:'cancelled',updated_by:'Tiendanube'});
++ await flushTiendanubeStatusPush(f.env,now);
++ const request=JSON.parse(f.rows('3001')[0].request);
++ assert.equal(request.path,'/orders/P93001/cancel');
++ assert.deepEqual(request.body,{reason:'inventory',email:true,restock:false});
++ assert.equal(f.rows('3002').length,0);
++});
++
++test('solo pedidos web y sin duplicados',async()=>{
++ const f=fixture();await ensureTiendanubeStatusPush(f.db);
++ f.web('W900','Retiro en depósito','WhatsApp');
++ f.set('W900',{commercial_status:'confirmed'});
++ assert.equal(f.rows('W900').length,0);
++ f.web('4001');
++ f.set('4001',{delivery_status:'ready_pickup'});f.set('4001',{delivery_status:'pending'});f.set('4001',{delivery_status:'ready_pickup'});
++ assert.equal(f.rows('4001').length,1);
++});
++
++test('apagado por defecto: sin modo simulación no procesa la cola',async()=>{
++ const f=fixture();await ensureTiendanubeStatusPush(f.db);
++ f.web();f.set('1043',{commercial_status:'confirmed'});
++ assert.deepEqual(await flushTiendanubeStatusPush({DB:f.db},now),{simulated:0,skipped:0,sent:0,failed:0,mode:'off'});
++ assert.deepEqual(await flushTiendanubeStatusPush({DB:f.db,TIENDANUBE_STATUS_PUSH:'live'},now),{simulated:0,skipped:0,sent:0,failed:0,mode:'live-bloqueado'});
++ assert.equal(f.rows()[0].status,'pending');
++ const report=await statusPushReport(f.db);
++ assert.equal(report.mode,'queue');
++ assert.deepEqual(report.counts,{pending:1});
++});
++
++// ---- Envío real (live) con una Tiendanube simulada ----
++const liveEnv=(f,extra={})=>({DB:f.db,TIENDANUBE_STATUS_PUSH:'live',TIENDANUBE_STORE_ID:'8415696',TIENDANUBE_WRITE_STORES:'8415696',TIENDANUBE_ACCESS_TOKEN:'t',...extra});
++function falsaApi({foStatus='UNPACKED',falla=null}={}){
++ const llamadas=[];let nota='Nota del local';let estado=foStatus;
++ const fetchImpl=async(url,init={})=>{
++  const method=init.method||'GET',path=url.replace(/^https:\/\/api\.tiendanube\.com\/v1\/\d+/,''),body=init.body?JSON.parse(init.body):undefined;
++  llamadas.push({method,path,body});
++  if(falla&&falla(method,path))return new Response(JSON.stringify({error:'x'}),{status:falla(method,path)});
++  const ok=(d)=>new Response(JSON.stringify(d),{status:200});
++  if(method==='GET'&&path.includes('fields=owner_note'))return ok({owner_note:nota});
++  if(method==='PUT')return (nota=body.owner_note,ok({}));
++  if(method==='GET'&&path.endsWith('/fulfillment-orders'))return ok([{id:'fo1',status:estado}]);
++  if(method==='PATCH')return (estado=body.status,ok({}));
++  return ok({});
++ };
++ return {llamadas,fetchImpl,nota:()=>nota};
++}
++
++test('live: nunca envía a la tienda real ni a tiendas fuera de la lista',()=>{
++ const f=fixture();
++ assert.throws(()=>liveSender(liveEnv(f,{TIENDANUBE_STORE_ID:'6357775',TIENDANUBE_WRITE_STORES:'6357775'})),/bloqueado/);
++ assert.throws(()=>liveSender(liveEnv(f,{TIENDANUBE_WRITE_STORES:'8415696,6357775'})),/bloqueado/);
++ assert.throws(()=>liveSender(liveEnv(f,{TIENDANUBE_STORE_ID:'8413613'})),/bloqueado/);
++ assert.doesNotThrow(()=>liveSender(liveEnv(f)));
++});
++
++test('live: retiro completo envía nota, preparación, listo y entregado + cierre',async()=>{
++ const f=fixture();await ensureTiendanubeStatusPush(f.db);const api=falsaApi();
++ f.web();
++ f.set('1043',{quote_sent_at:now.toISOString()});
++ f.sql.prepare("INSERT INTO order_sessions VALUES('1043','in_progress')").run();
++ f.set('1043',{delivery_status:'ready_pickup'});
++ f.sql.prepare("INSERT INTO deliveries VALUES('1043')").run();
++ const summary=await flushTiendanubeStatusPush(liveEnv(f),now,20,api.fetchImpl);
++ assert.equal(summary.sent,4,JSON.stringify(f.rows()));
++ assert.match(api.nota(),/^Nota del local\nERP · Cotización enviada/,'la nota se agrega sin pisar la del local');
++ const patches=api.llamadas.filter(l=>l.method==='PATCH').map(l=>l.body.status);
++ assert.deepEqual(patches,['IN_PREPARATION','READY_FOR_PICKUP','DELIVERED']);
++ assert.ok(api.llamadas.some(l=>l.method==='POST'&&l.path==='/orders/P91043/close'));
++ assert.ok(f.rows().every(r=>r.status==='sent'));
++});
++
++test('live: envío despachado se entrega con evento de seguimiento',async()=>{
++ const f=fixture();await ensureTiendanubeStatusPush(f.db);const api=falsaApi({foStatus:'DISPATCHED'});
++ f.web('2001','Envío a domicilio');
++ f.sql.prepare("INSERT INTO deliveries VALUES('2001')").run();
++ await flushTiendanubeStatusPush(liveEnv(f),now,20,api.fetchImpl);
++ assert.ok(api.llamadas.some(l=>l.method==='POST'&&l.path.endsWith('/fulfillment-orders/fo1/tracking-events')&&l.body.status==='delivered'));
++});
++
++test('live: errores de conexión se reintentan; rechazos quedan fallidos con motivo',async()=>{
++ const f=fixture();await ensureTiendanubeStatusPush(f.db);
++ f.web('5001');f.set('5001',{commercial_status:'confirmed'});
++ let api=falsaApi({falla:(m)=>m==='PUT'?503:0});
++ let s=await flushTiendanubeStatusPush(liveEnv(f),now,20,api.fetchImpl);
++ assert.equal(f.rows('5001')[0].status,'pending');assert.match(f.rows('5001')[0].detail,/Reintentando/);
++ api=falsaApi();
++ s=await flushTiendanubeStatusPush(liveEnv(f),now,20,api.fetchImpl);
++ assert.equal(s.sent,1);
++ f.web('5002');f.set('5002',{delivery_status:'ready_pickup'});
++ api=falsaApi({falla:(m)=>m==='PATCH'?422:0});
++ s=await flushTiendanubeStatusPush(liveEnv(f),now,20,api.fetchImpl);
++ assert.equal(s.failed,1);
++ assert.match(f.rows('5002')[0].detail,/No se pudo enviar: PATCH \/orders\/P95002\/fulfillment-orders\/fo1 → 422/);
++});
+diff --git a/worker/index.ts b/worker/index.ts
+index 00c7dd5..8f39fe0 100644
+--- a/worker/index.ts
++++ b/worker/index.ts
+@@ -4,6 +4,7 @@ import handler from "vinext/server/app-router-entry";
+ import { GET as warehouseGet } from "../app/api/warehouse/route";
+ import { runOperationalRetention } from "../app/api/warehouse/retention";
+ import { flushPickupReadyWhatsApp } from "../app/api/warehouse/pickupReadyWhatsApp";
++import { flushTiendanubeStatusPush } from "../app/api/tiendanube/statusPush";
+ import { authorizeAccess, type AccessConfiguration } from "./access";
+ 
+ function withSecurityHeaders(request: Request, response: Response) {
+@@ -73,6 +74,9 @@ const worker = {
+       ctx.waitUntil(flushPickupReadyWhatsApp(env,new Date(),1).catch(()=>{
+         console.error(JSON.stringify({event:'pickup_ready_whatsapp_failed'}));
+       }));
++      ctx.waitUntil(flushTiendanubeStatusPush(env,new Date(),5).catch(()=>{
++        console.error(JSON.stringify({event:'tiendanube_status_push_failed'}));
++      }));
+     }
+     return withSecurityHeaders(request,response);
+   },
+@@ -82,6 +86,9 @@ const worker = {
+     ctx.waitUntil(flushPickupReadyWhatsApp(env,new Date(),20).catch(()=>{
+       console.error(JSON.stringify({event:'pickup_ready_whatsapp_failed'}));
+     }));
++    ctx.waitUntil(flushTiendanubeStatusPush(env,new Date(),20).catch(()=>{
++      console.error(JSON.stringify({event:'tiendanube_status_push_failed'}));
++    }));
+   },
+ };
+ 
+-- 
+2.50.1 (Apple Git-155)
+
