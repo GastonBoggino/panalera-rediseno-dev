@@ -1,0 +1,6 @@
+.git
+.git/
+scripts/
+README.md
+.gitignore
+.assetsignore

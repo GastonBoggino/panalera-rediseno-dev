@@ -1,7 +1,7 @@
 From 339f999fb86b72c8b9c42db71cb961bfd7cf0a8d Mon Sep 17 00:00:00 2001
 From: gaston <gastonboggino1@gmail.com>
 Date: Thu, 22 Oct 2026 21:05:40 -0300
-Subject: [PATCH 1/6] Avisos a Tiendanube: modo live solo para tiendas de
+Subject: [PATCH 1/7] Avisos a Tiendanube: modo live solo para tiendas de
  prueba permitidas (real bloqueada), con reintentos
 
 ---

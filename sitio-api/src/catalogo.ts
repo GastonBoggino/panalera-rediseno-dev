@@ -25,10 +25,17 @@ export const textoSeguro = (v: string) => v.replace(/[<>"'`]/g, '').replace(/[\u
 // Solo imágenes https (el CDN de Tiendanube); cualquier otra cosa se descarta.
 export const imagenSegura = (v: unknown) => (/^https:\/\/[^\s"'<>]+$/.test(String(v || '')) ? String(v) : '');
 
+// "x500" en un óleo o un algodón son ml o gramos, no unidades: el "xN" solo cuenta en productos
+// que se venden por unidad. Los talles de pañales ("G60", "XG52") cuentan siempre.
+const POR_UNIDAD = /TOALL|PA[ÑN]AL|PANTS|AP[OÓ]SIT|PROTECTOR|DISCO|HISOP|BOLSA|COMPRES|ALMOHADILL|BABERO|SABANITA|INCONT/i;
 export function unidades(nombre: string) {
   let m: RegExpExecArray | null, last: number | null = null;
+  const porUnidad = POR_UNIDAD.test(nombre);
   UNIT_RE.lastIndex = 0;
-  while ((m = UNIT_RE.exec(nombre))) last = Number(m[1]);
+  while ((m = UNIT_RE.exec(nombre))) {
+    if (/^x\s?\d/i.test(m[0]) && !porUnidad) continue;
+    last = Number(m[1]);
+  }
   return last && last > 1 ? last : null;
 }
 

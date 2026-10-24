@@ -1,0 +1,19 @@
+{
+  // DEV EN LÍNEA — cuenta de Gaston (NO la de Samu, donde está el ERP de producción).
+  // Sitio + servidor en una dirección, con contraseña (secreto ACCESO_DEV) y noindex.
+  // Publicar: npx wrangler deploy --config wrangler.online.jsonc
+  "name": "panalera-sitio-dev",
+  "account_id": "0119a8565f1af9eba9a20414c04e9665",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": { "directory": ".publicar-dev", "binding": "ASSETS", "run_worker_first": true },
+  "vars": {
+    "TIENDANUBE_STORE_ID": "8415696",
+    "ALLOWED_ORIGINS": "",
+    "MINIMO_PEDIDO": "50000"
+  }
+  // Secretos (wrangler secret put): TIENDANUBE_ACCESS_TOKEN, TIENDANUBE_USER_AGENT, LINK_SECRET,
+  // TURNSTILE_SECRET (de prueba en DEV), CLAVE_INTERNA, ACCESO_DEV (contraseña: la carga el usuario).
+}

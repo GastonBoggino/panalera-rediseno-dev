@@ -76,6 +76,13 @@ test('catálogo con el formato de la maqueta, costos solo en el interno y sin pr
 test('unidades y teléfonos', () => {
   assert.equal(unidades('PAMPERS DELUXE XG96'), 96);
   assert.equal(unidades('SHAMPOO X 400 ml'), null);
+  assert.equal(unidades('OLEO PAEZ X500'), null, 'x500 en un óleo son ml');
+  assert.equal(unidades('ALGODON DONCELLA X140'), null, 'x140 en algodón son gramos');
+  assert.equal(unidades('SUNNY DESODORANTE X100'), null);
+  assert.equal(unidades('KIMBIES TOALLAS HUMEDAS X48'), 48);
+  assert.equal(unidades('ALGABO BABY TRAVEL TOALLAS HUMEDAS x6 PAQ X48'), 48);
+  assert.equal(unidades('COMODIN INCONT.FUERTE x10'), 10);
+  assert.equal(unidades('ESTRELLA PANAL PREMIUM G60'), 60);
   assert.equal(normalizarTelefono('341 15 555-1234'), '543415551234');
   assert.equal(normalizarTelefono('+54 9 341 555 1234'), '543415551234');
   assert.equal(normalizarTelefono('555-1234'), '');
@@ -181,9 +188,15 @@ test('botón de arrepentimiento: cancela si no se empezó a preparar; si no, sol
   assert.ok(f.llamadas.some((l) => l.url.endsWith('/orders/555/cancel') && l.body.email === false && l.body.restock === false));
   limpiarLimites();
   f = falsaTiendanube({ prep: 'DISPATCHED' });
+  const enCamino = await pedir(f.deps);
+  assert.equal(enCamino.status, 409, 'en camino no se puede cancelar desde la web');
+  assert.match((await enCamino.json() as any).errores[0], /ya está en camino/);
+  assert.equal(f.llamadas.some((l) => l.url.endsWith('/cancel') || l.method === 'PUT'), false);
+  limpiarLimites();
+  f = falsaTiendanube({ prep: 'READY_FOR_PICKUP' });
   r = await (await pedir(f.deps)).json();
   assert.equal(r.resultado, 'solicitado');
-  assert.equal(f.llamadas.some((l) => l.url.endsWith('/cancel')), false, 'en reparto no se cancela desde la web');
+  assert.equal(f.llamadas.some((l) => l.url.endsWith('/cancel')), false, 'preparado: solo se registra el pedido');
   const put = f.llamadas.find((l) => l.method === 'PUT')!;
   assert.match(put.body.owner_note, /ERP · Cotización enviada[\s\S]*\nWEB · Pedido de cancelación del cliente .*Motivo: Me equivoqué/);
   limpiarLimites();

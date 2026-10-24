@@ -5,12 +5,13 @@
    coAct y renderMyOrder; el resto de la maqueta queda igual. */
 (() => {
   const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
-  const API = LOCAL ? "http://localhost:8788" : (window.SITIO_API || "");
+  // Local: servidor aparte (8788). En línea: el mismo sitio sirve el servidor en /api.
+  const API = LOCAL ? "http://localhost:8788" : (window.SITIO_API || "/api");
   // Clave pública de PRUEBA de Cloudflare Turnstile (siempre aprueba). Solo DEV.
   const TURNSTILE_SITEKEY = "1x00000000000000000000AA";
   // Solo DEV: la tienda demo no tiene fotos; se usan las de la maqueta por SKU (archivo sin costos).
   let IMG_POR_SKU = new Map();
-  const fotosDev = LOCAL ? fetch("imagenes-dev.json").then(r => r.json()).then(m => { IMG_POR_SKU = new Map(Object.entries(m)); }).catch(() => {}) : Promise.resolve();
+  const fotosDev = !window.SITIO_PRODUCCION ? fetch("imagenes-dev.json").then(r => r.json()).then(m => { IMG_POR_SKU = new Map(Object.entries(m)); }).catch(() => {}) : Promise.resolve();
   const ENTREGAS = [
     { id: "retiro", name: "Retiro en Garay 1249", detail: "Lun a vie 8 a 16 h, sáb 9 a 13 h · sin cargo" },
     { id: "rosario", name: "Envío en Rosario y alrededores", detail: "El costo te lo confirmamos con el stock" },
@@ -229,11 +230,14 @@
       o = await r.json();
     } catch (_) { v.innerHTML = `<div class="empty">No pudimos abrir este pedido. Revisá el link o escribinos por WhatsApp.</div>`; return; }
     const retiro = /retiro/i.test(o.entrega), idx = ETAPAS[o.etapa] ?? 0;
-    const pasos = ["Recibido", "En revisión", o.etapa === "preparando" ? "En preparación" : "Confirmado", retiro ? "Listo para retirar" : "En camino", "Entregado"];
+    const pasos = ["Recibido", "En revisión", o.etapa === "preparando" ? "En preparación" : "Confirmado", retiro ? "Listo para retirar" : o.etapa === "listo" ? "Listo para el envío" : "En camino", "Entregado"];
     let [titulo, texto] = TEXTO[o.etapa] || TEXTO.recibido;
+    // "Listo" con envío: no se retira, sale en el próximo reparto.
+    if (o.etapa === "listo" && !retiro) [titulo, texto] = ["¡Listo para el envío!", "Tu pedido está preparado y sale en el próximo reparto. Te avisamos por WhatsApp cuando esté en camino."];
     if (o.cancelacionSolicitada) [titulo, texto] = ["Recibimos tu pedido de cancelación", "Te escribimos por WhatsApp para resolverlo. Hasta entonces el pedido sigue su curso."];
     if (o.cancelacionEnCurso) [titulo, texto] = ["Cancelación en curso", "El pedido vuelve al local. Te escribimos por WhatsApp para coordinar la devolución."];
-    const puedePedirCancelar = !["cancelado", "entregado"].includes(o.etapa) && !o.cancelacionSolicitada && !o.cancelacionEnCurso;
+    // En camino o entregado ya no se puede cancelar desde la web.
+    const puedePedirCancelar = !["cancelado", "entregado", "en_camino"].includes(o.etapa) && !o.cancelacionSolicitada && !o.cancelacionEnCurso;
     if (o.etapa === "cancelado" && o.pago === "reintegro") texto = "Ya habías pagado: te vamos a escribir por WhatsApp para coordinar la devolución del dinero.";
     if (o.etapa === "cancelado" && o.canceladoEnCamino) texto += " El pedido ya había salido: el repartidor lo va a traer de vuelta al local.";
     const guardado = pedidosGuardados().find(x => x.id === ref.id);

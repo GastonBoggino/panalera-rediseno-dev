@@ -23,7 +23,8 @@ export function limpiarLimites() { intentos.clear(); }
 function origenPermitido(request: Request, env: Env) {
   const origin = request.headers.get('Origin') || '';
   const permitidos = (env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
-  return { origin, ok: !!origin && permitidos.includes(origin) };
+  // En línea, el sitio y el servidor comparten dirección: el propio origen siempre vale.
+  return { origin, ok: !!origin && (permitidos.includes(origin) || origin === new URL(request.url).origin) };
 }
 
 function json(data: unknown, status: number, origin: string | null, extra: Record<string, string> = {}) {
@@ -169,6 +170,8 @@ export async function handle(request: Request, env: Env, deps: Deps = depsPorDef
       if (order.status === 'cancelled') return json({ resultado: 'ya_cancelado' }, 200, cors);
       const fos = await api(`/orders/${mc[1]}/fulfillment-orders`).catch(() => []);
       const preparacion = Array.isArray(fos) && fos[0]?.status ? String(fos[0].status).toUpperCase() : 'UNPACKED';
+      // En camino o entregado: no se cancela ni se pide cancelar desde la web.
+      if (['DISPATCHED', 'DELIVERED'].includes(preparacion)) return json({ errores: ['Tu pedido ya está en camino: no se puede cancelar desde la web. Escribinos por WhatsApp.'] }, 409, cors);
       const nota = String(order.owner_note || '');
       // Si ya está cobrado, no se cancela solo: hay que coordinar la devolución del dinero.
       const cobrado = order.payment_status === 'paid' || /Cobro registrado/i.test(nota);

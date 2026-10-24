@@ -110,12 +110,12 @@ Hacé un pedido con **retiro**, importalo y avanzalo con el panel. En cada paso 
 - [ ] **J2. Producto sin unidades** (ej. un set o combo). → Se muestra sin precio por unidad, sin errores.
 - [ ] **J3. Mismo cliente, varios pedidos.** Dos pedidos con el mismo teléfono. → Ambos entran; en el ERP quedan con el mismo cliente.
 - [ ] **J4. Muchos pedidos seguidos del mismo teléfono.** Más de 3 en una hora. → "Ya recibimos varios pedidos de este teléfono".
+- [ ] **J6. Muchos pedidos seguidos desde la misma conexión.** Más de 5 en 10 minutos. → "Demasiados pedidos seguidos".
 - [ ] **J5. Recargar en medio del checkout.** → Se pierde lo escrito pero no se crea ningún pedido.
 
 ## Lo que no se puede probar en local
 
 - **Avisos de WhatsApp** a clientes (el ERP de prueba no tiene WhatsApp).
-- **Límite por conexión** (5 pedidos cada 10 minutos): depende de Cloudflare publicado.
 - **Anti-robots real** (en DEV aprueba siempre).
 - **E-mails** de Tiendanube (los pedidos de prueba no los envían).
 - **Detección inmediata** de cancelaciones: en local se detectan al tocar "Importar pedidos web".

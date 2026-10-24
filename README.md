@@ -13,7 +13,11 @@ Repositorio **privado** con todo el trabajo del rediseño de panaleramayorista.c
 | `erp-cambios/` | **Solo los cambios** hechos al ERP, como parches sobre `panalera-mayorista-rosario` (avisos a Tiendanube en modo live para la demo, cobro registrado, cancelaciones, pendientes del equipo) y los scripts de prueba |
 | `tema-ipanema-dev/` | Plan A: plantilla Ipanema de la tienda demo con el diseño de la maqueta (`piloto-codigo/aplicar.py` lo genera) |
 | `piloto-codigo/` | Código del plan A (bloques de código, colores, encabezado, tarjetas) |
+| `pruebas/` | Ayudantes para correr los casos de prueba (crear pedidos, avanzar pasos, botón de arrepentimiento) |
 | `maqueta/` | La maqueta original (la de Netlify), su versión publicada y los CSV exportados del catálogo |
+
+## DEV en línea
+- Sitio + servidor: `https://panalera-sitio-dev.gastonboggino.workers.dev` (cuenta de Gaston, con contraseña, noindex). Publicar: `cd sitio-api && npx wrangler deploy --config wrangler.online.jsonc` (copiar antes el sitio a `.publicar-dev`).
 
 ## Reglas
 - **Tienda real (6357775): solo lectura.** Todo se prueba en la tienda demo de Partners (8415696). La real está bloqueada en el código.
