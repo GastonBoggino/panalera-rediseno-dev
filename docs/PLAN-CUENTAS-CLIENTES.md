@@ -89,3 +89,10 @@ Reglas de siempre: nada en producción, la tienda real (6357775) no se toca, Git
 - Buzón de pruebas (`sitio-api/src/buzon.ts`): guarda los mensajes sin enviarlos (últimos 200); se ve en el panel de pruebas local (sección "Buzón de pruebas").
 - Pruebas automáticas: 18/18 (6 nuevas).
 - Las versiones en línea todavía no se actualizaron (no hay nada visible para el cliente hasta la etapa 2).
+
+## Resultado de la etapa 2 (26/10/2026)
+
+- Google Cloud: proyecto "Panalera Mayoritas" (cuenta gastonboggino3), modo prueba, cliente web "Sitio DEV" (orígenes: localhost:8787, localhost y el DEV en línea). Solo se usa el ID público; el secreto no.
+- Servidor: `POST /sesion/google` (verifica firma, emisor, destinatario, vencimiento y e-mail verificado), `GET /mis-pedidos`, `POST /mis-pedidos/vincular`; un pedido hecho con sesión queda en la cuenta; los pedidos guardados en el dispositivo se suman al entrar (solo con link firmado válido, nunca los de otra cuenta). Pruebas: 22/22.
+- Sitio: botón "Ingresar", "Mi cuenta" con "Mis pedidos", cerrar sesión (uno o todos los dispositivos) e invitación a guardar los pedidos en la pantalla del pedido.
+- **Probado en el DEV en línea por Gastón (26/10): entró con Google ("Hola Gastón"); quedó 1 cuenta, 1 sesión y 1 pedido del navegador sumado a la cuenta.**

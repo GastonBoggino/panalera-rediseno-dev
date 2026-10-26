@@ -333,7 +333,8 @@
       if (!r.ok) throw new Error((d.errores || ["No pudimos entrar. Probá de nuevo."]).join(" "));
       cuenta.cliente = d.cliente;
       pintarBotonCuenta();
-      toast(`¡Hola${d.cliente.nombre ? ", " + d.cliente.nombre.split(" ")[0] : ""}! Tus pedidos quedan guardados en tu cuenta.`);
+      const hola = `¡Hola${d.cliente.nombre ? ", " + d.cliente.nombre.split(" ")[0] : ""}!`;
+      toast(d.sumados > 0 ? `${hola} Sumamos ${d.sumados} pedido${d.sumados === 1 ? "" : "s"} a tu cuenta.` : `${hola} Tus pedidos quedan guardados en tu cuenta.`);
       if (!$("#myorder").hidden) renderMyOrder(); else go("account");
     } catch (err) { toast(err.message); }
   }

@@ -10,7 +10,7 @@ import { firmarPedido, verificarPedido } from './link.ts';
 import { armarPedidoTiendanube, validarPedido } from './pedido.ts';
 import { leerBuzon } from './buzon.ts';
 import { cerrarSesion, cerrarTodas, cookieBorrada, cookieSesion, crearSesion, leerSesion, type D1 } from './sesion.ts';
-import { clienteDesdeGoogle, pedidosDelCliente, verificarTokenGoogle, vincularPedido } from './cuentas.ts';
+import { clienteDesdeGoogle, enlazarClienteTiendanube, pedidosDelCliente, sumarPedidosAnteriores, verificarTokenGoogle, vincularPedido } from './cuentas.ts';
 import { TiendanubeError, tiendanube, type Env } from './tiendanube.ts';
 
 type Deps = { fetch: typeof fetch; ahora: () => number };
@@ -173,7 +173,13 @@ export async function handle(request: Request, env: Env, deps: Deps = depsPorDef
       const ahora = deps.ahora();
       const clienteId = await clienteDesdeGoogle(env.DB, g, ahora);
       const token = await crearSesion(env.DB, clienteId, ahora, String(request.headers.get('User-Agent') || ''));
-      const sumados = await vincularPedidosLocales(env.DB, clienteId, body?.pedidos, env.LINK_SECRET || '', ahora);
+      let sumados = await vincularPedidosLocales(env.DB, clienteId, body?.pedidos, env.LINK_SECRET || '', ahora);
+      // Enlace con Tiendanube: ficha del cliente y pedidos anteriores con el mismo e-mail.
+      // Si Tiendanube falla, se entra igual (se reintenta en el próximo ingreso).
+      try {
+        await enlazarClienteTiendanube(env.DB, api, clienteId, ahora);
+        sumados += await sumarPedidosAnteriores(env.DB, api, clienteId, g.email, ahora);
+      } catch (e) { console.error('sitio-api enlace tiendanube', e instanceof Error ? e.message : 'error'); }
       return json({ cliente: { nombre: g.nombre, email: g.email }, sumados }, 200, cors, { 'Set-Cookie': cookieSesion(token) });
     }
     if (url.pathname === '/mis-pedidos' || url.pathname === '/mis-pedidos/vincular') {
@@ -235,12 +241,15 @@ export async function handle(request: Request, env: Env, deps: Deps = depsPorDef
       }
       if (!armado.ok) return json({ errores: armado.errores }, 422, cors);
 
+      // Con sesión: el pedido sale con el e-mail de la cuenta (y la ficha ya creada) para que Tiendanube lo enlace al cliente.
+      const { cliente: conSesion } = env.DB ? await leerSesion(env.DB, request, ahora).catch(() => ({ cliente: null })) : { cliente: null };
+      if (conSesion && env.DB) {
+        await enlazarClienteTiendanube(env.DB, api, conSesion.id, ahora).catch(() => null);
+        (armado.body as any).customer.email = conSesion.email;
+      }
       const creado = await api('/orders', { method: 'POST', body: JSON.stringify(armado.body) });
       const token = await firmarPedido(creado.id, env.LINK_SECRET || '');
-      if (env.DB) {
-        const { cliente } = await leerSesion(env.DB, request, ahora).catch(() => ({ cliente: null }));
-        if (cliente) await vincularPedido(env.DB, cliente.id, Number(creado.id), Number(creado.number) || 0, ahora).catch(() => {});
-      }
+      if (conSesion && env.DB) await vincularPedido(env.DB, conSesion.id, Number(creado.id), Number(creado.number) || 0, ahora).catch(() => 0);
       return json({ numero: creado.number, total: armado.total, seguimiento: `/pedido/${creado.id}?t=${token}` }, 201, cors);
     }
 

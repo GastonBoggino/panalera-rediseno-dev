@@ -46,7 +46,7 @@ for (const it of items) {
 
 const robots = PRODUCCION ? '' : '<meta name="robots" content="noindex, nofollow">';
 const cabecera = (titulo, descripcion, ruta, extra = '') => `<!doctype html>
-<html lang="es-AR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="es-AR"><head><meta charset="utf-8"><link rel="icon" type="image/png" sizes="48x48" href="/img/favicon-48.png"><link rel="apple-touch-icon" href="/img/apple-touch-icon.png"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(titulo)}</title><meta name="description" content="${esc(descripcion)}">${robots}
 <link rel="canonical" href="${DOMINIO}${ruta}"><meta property="og:type" content="website"><meta property="og:title" content="${esc(titulo)}">
 <meta property="og:description" content="${esc(descripcion)}"><meta property="og:url" content="${DOMINIO}${ruta}">${extra}
@@ -73,7 +73,7 @@ footer{border-top:1px solid var(--line);margin-top:32px;padding:20px 0;color:var
 @media (max-width:720px){.ficha{grid-template-columns:1fr}}
 </style></head><body>
 <div class="promo">Compra mínima <b>$50.000</b> combinando marcas · Precios en efectivo · Transferencia +5%</div>
-<header><div class="wrap"><a class="logo" href="/"><span class="mark" aria-hidden="true">P</span><span><b>Pañalera</b><small>Mayorista · Rosario</small></span></a>
+<header><div class="wrap"><a class="logo" href="/"><img src="/img/logo-112.png" width="52" height="52" alt="Pañalera Mayorista"><span><b>Pañalera</b><small>Mayorista · Rosario</small></span></a>
 <a class="btn ghost" href="/#productos">Ver todos los productos</a></div></header><main class="wrap">`;
 const pie = `</main><footer><div class="wrap">Pañalera Mayorista · Garay 1249, Rosario · Lun a vie 8–16 h, sábados 9–13 h · WhatsApp 341 753-5218</div></footer></body></html>`;
 

@@ -216,3 +216,89 @@ test('pedido hecho con la sesión iniciada queda en "Mis pedidos"; sin sesión, 
   assert.equal((await handle(pedir(`${COOKIE}=${token}`), env, d)).status, 201);
   assert.deepEqual(sqlite.prepare('SELECT pedido_id, numero FROM pedidos_cliente').all().map((f: any) => [f.pedido_id, f.numero]), [[9001, 140]]);
 });
+
+// ---------- Etapa 3: enlace con Tiendanube ----------
+function depsTiendanube({ clienteExistente = 0, falla = false, pedidos = [] as any[] } = {}) {
+  const llamadas: { metodo: string; url: string; body?: any }[] = [];
+  const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+    const metodo = init.method || 'GET';
+    const body = typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
+    llamadas.push({ metodo, url, body });
+    const res = (d: unknown, status = 200) => new Response(JSON.stringify(d), { status });
+    if (url.includes('googleapis.com/oauth2/v3/certs')) return res({ keys: [jwkPublica] });
+    if (falla && url.includes('api.tiendanube.com')) return res({ error: 'caída' }, 500);
+    if (url.includes('/customers?email=')) return clienteExistente ? res([{ id: clienteExistente }]) : res({ description: 'Last page is 0' }, 404);
+    if (url.endsWith('/customers') && metodo === 'POST') return res({ id: 777 }, 201);
+    if (url.includes('/orders?q=')) return res(pedidos);
+    if (url.includes('turnstile')) return res({ success: true });
+    if (url.includes('/products?')) return res(url.includes('page=1') ? [{ id: 1, published: true, name: { es: 'ESTRELLA PANAL PREMIUM G60' }, handle: { es: 'g60' }, categories: [{ name: { es: 'Pañales' } }], images: [], variants: [{ id: 101, price: '30000.00', sku: 'G60', values: [] }] }] : []);
+    if (url.endsWith('/orders') && metodo === 'POST') return res({ id: 9100, number: 150 }, 201);
+    return res({}, 404);
+  }) as unknown as typeof fetch;
+  return { llamadas, deps: { fetch: fetchImpl, ahora: () => AHORA } };
+}
+
+test('al entrar: crea la ficha en Tiendanube sin mail de invitación (una sola vez) y suma pedidos anteriores con el mismo e-mail', async () => {
+  limpiarClavesGoogle(); (await import('../src/index.ts')).limpiarLimites();
+  const { sqlite, db, cliente } = baseDePrueba();
+  const otro = cliente('otro@example.com');
+  sqlite.prepare('INSERT INTO pedidos_cliente (pedido_id, cliente_id, numero, creado) VALUES (5003, ?, 103, 0)').run(otro);
+  const env = { ...envBase, DB: db, GOOGLE_CLIENT_ID: CLIENT_ID };
+  const pedidos = [
+    { id: 5001, number: 101, contact_email: 'ana.prueba@example.com' },
+    { id: 5002, number: 102, contact_email: 'ANA.PRUEBA@example.com' },
+    { id: 5004, number: 104, contact_email: 'xana.prueba@example.com' },
+    { id: 5003, number: 103, contact_email: 'ana.prueba@example.com' },
+  ];
+  const t = depsTiendanube({ pedidos });
+  const res: any = await (await handle(entrar(await tokenGoogle({})), env, t.deps)).json();
+  assert.equal(res.sumados, 2, 'solo coincidencia exacta y sin robar el de otra cuenta');
+  const alta = t.llamadas.filter((l) => l.metodo === 'POST' && l.url.endsWith('/customers'));
+  assert.equal(alta.length, 1);
+  assert.equal(alta[0].body.send_email_invite, false);
+  assert.equal(alta[0].body.email, 'ana.prueba@example.com');
+  assert.ok(!('password' in alta[0].body), 'nunca se manda contraseña');
+  assert.ok(t.llamadas.every((l) => !l.url.includes('api.tiendanube.com') || l.url.includes('/v1/8415696/')), 'solo la tienda demo');
+  const ana = sqlite.prepare("SELECT id, tiendanube_id FROM clientes WHERE email = 'ana.prueba@example.com'").get() as any;
+  assert.equal(ana.tiendanube_id, 777);
+  assert.deepEqual(sqlite.prepare('SELECT pedido_id FROM pedidos_cliente WHERE cliente_id = ? ORDER BY pedido_id').all(ana.id).map((f: any) => f.pedido_id), [5001, 5002]);
+  assert.equal((sqlite.prepare('SELECT cliente_id FROM pedidos_cliente WHERE pedido_id = 5003').get() as any).cliente_id, otro);
+
+  const t2 = depsTiendanube({ pedidos });
+  await handle(entrar(await tokenGoogle({})), env, t2.deps);
+  assert.equal(t2.llamadas.filter((l) => l.url.includes('/customers')).length, 0, 'con la ficha ya enlazada no se vuelve a buscar ni crear');
+});
+
+test('si la ficha ya existe en Tiendanube se usa esa; si Tiendanube falla, se entra igual', async () => {
+  limpiarClavesGoogle(); (await import('../src/index.ts')).limpiarLimites();
+  const { sqlite, db } = baseDePrueba();
+  const env = { ...envBase, DB: db, GOOGLE_CLIENT_ID: CLIENT_ID };
+  const t = depsTiendanube({ clienteExistente: 356 });
+  assert.equal((await handle(entrar(await tokenGoogle({})), env, t.deps)).status, 200);
+  assert.equal(t.llamadas.filter((l) => l.metodo === 'POST' && l.url.endsWith('/customers')).length, 0);
+  assert.equal((sqlite.prepare('SELECT tiendanube_id FROM clientes').get() as any).tiendanube_id, 356);
+
+  const b = baseDePrueba();
+  const caida = depsTiendanube({ falla: true });
+  const r = await handle(entrar(await tokenGoogle({ sub: 'g-999', email: 'beto@example.com' })), { ...env, DB: b.db }, caida.deps);
+  assert.equal(r.status, 200);
+  assert.ok(cookieDe(r), 'abre la sesión aunque Tiendanube no responda');
+  assert.equal((b.sqlite.prepare('SELECT tiendanube_id FROM clientes').get() as any).tiendanube_id, null, 'se reintenta en el próximo ingreso');
+});
+
+test('pedido con sesión: sale con el e-mail de la cuenta para que Tiendanube lo enlace a la ficha', async () => {
+  limpiarClavesGoogle(); (await import('../src/index.ts')).limpiarLimites();
+  const { limpiarCacheCatalogo } = await import('../src/catalogo.ts'); limpiarCacheCatalogo();
+  const { sqlite, db, cliente } = baseDePrueba();
+  const id = cliente();
+  sqlite.prepare('UPDATE clientes SET tiendanube_id = 777 WHERE id = ?').run(id);
+  const token = await crearSesion(db, id, AHORA);
+  const env = { ...envBase, DB: db, GOOGLE_CLIENT_ID: CLIENT_ID, TURNSTILE_SECRET: 's', MINIMO_PEDIDO: '50000' };
+  const t = depsTiendanube();
+  const cuerpo = JSON.stringify({ turnstile: 'ok', items: [{ variant_id: 101, quantity: 2 }], cliente: { nombre: 'Ana Prueba', telefono: '341 555-0101', email: 'otro.mail@example.com' }, entrega: { tipo: 'retiro' }, pago: 'efectivo' });
+  const r = await handle(new Request('http://api/pedido', { method: 'POST', headers: { Origin: ORIGEN, 'Content-Type': 'application/json', Cookie: `${COOKIE}=${token}` }, body: cuerpo }), env, t.deps);
+  assert.equal(r.status, 201);
+  const pedido = t.llamadas.find((l) => l.metodo === 'POST' && l.url.endsWith('/orders'))!;
+  assert.equal(pedido.body.customer.email, 'ana.prueba@example.com');
+  assert.deepEqual(sqlite.prepare('SELECT pedido_id FROM pedidos_cliente').all().map((f: any) => f.pedido_id), [9100]);
+});

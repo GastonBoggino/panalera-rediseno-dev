@@ -70,12 +70,47 @@ export async function clienteDesdeGoogle(db: D1, g: DatosGoogle, ahora: number):
 
 // Suma a la cuenta un pedido (de este dispositivo o recién hecho). Un pedido de otra cuenta no se toca.
 export async function vincularPedido(db: D1, clienteId: number, pedidoId: number, numero: number, ahora: number) {
-  await db.prepare('INSERT OR IGNORE INTO pedidos_cliente (pedido_id, cliente_id, numero, creado) VALUES (?, ?, ?, ?)')
+  const r = await db.prepare('INSERT OR IGNORE INTO pedidos_cliente (pedido_id, cliente_id, numero, creado) VALUES (?, ?, ?, ?)')
     .bind(pedidoId, clienteId, numero, ahora).run();
+  return r.meta.changes > 0 ? 1 : 0;
 }
 
 export async function pedidosDelCliente(db: D1, clienteId: number, limite = 30) {
   const { results } = await db.prepare('SELECT pedido_id, numero FROM pedidos_cliente WHERE cliente_id = ? ORDER BY pedido_id DESC LIMIT ?')
     .bind(clienteId, limite).all<{ pedido_id: number; numero: number }>();
   return results;
+}
+
+// ---------- Enlace con Tiendanube (tienda demo) ----------
+type Api = (path: string, init?: RequestInit) => Promise<any>;
+
+// Busca la ficha del cliente en Tiendanube por e-mail; si no existe, la crea (sin mail de invitación).
+// Con la ficha creada antes del pedido, Tiendanube enlaza solo el pedido al cliente por el e-mail.
+export async function enlazarClienteTiendanube(db: D1, api: Api, clienteId: number, ahora: number): Promise<number | null> {
+  const c = await db.prepare('SELECT email, nombre, tiendanube_id FROM clientes WHERE id = ?').bind(clienteId).first<{ email: string; nombre: string; tiendanube_id: number | null }>();
+  if (!c) return null;
+  if (c.tiendanube_id) return c.tiendanube_id;
+  const encontrados = await api(`/customers?email=${encodeURIComponent(c.email)}&fields=id`);
+  let id = Array.isArray(encontrados) && encontrados[0]?.id ? Number(encontrados[0].id) : 0;
+  if (!id) {
+    const creado = await api('/customers', { method: 'POST', body: JSON.stringify({ name: c.nombre || c.email.split('@')[0], email: c.email, send_email_invite: false }) });
+    id = Number(creado?.id) || 0;
+  }
+  if (!id) return null;
+  await db.prepare('UPDATE clientes SET tiendanube_id = ?, actualizado = ? WHERE id = ?').bind(id, ahora, clienteId).run();
+  return id;
+}
+
+// Suma a la cuenta los pedidos anteriores hechos con el mismo e-mail (verificado por Google).
+// Solo coincidencia exacta del e-mail; un pedido que ya es de otra cuenta no se toca.
+export async function sumarPedidosAnteriores(db: D1, api: Api, clienteId: number, email: string, ahora: number) {
+  const pedidos = await api(`/orders?q=${encodeURIComponent(email)}&status=any&per_page=50&fields=id,number,contact_email,customer`);
+  if (!Array.isArray(pedidos)) return 0;
+  let n = 0;
+  for (const o of pedidos) {
+    const de = String(o.contact_email || o.customer?.email || '').toLowerCase();
+    if (de !== email.toLowerCase() || !o.id) continue;
+    n += await vincularPedido(db, clienteId, Number(o.id), Number(o.number) || 0, ahora);
+  }
+  return n;
 }
