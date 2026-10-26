@@ -2,9 +2,15 @@
 //   GET  /catalogo           catálogo con el formato de la maqueta
 //   POST /pedido             valida, recalcula y crea el pedido "a confirmar" en Tiendanube
 //   GET  /pedido/:id?t=...   seguimiento por link privado (sin cuenta)
+//   GET  /sesion             cliente con sesión (o null) · POST /sesion/cerrar · POST /sesion/cerrar-todas
+//   POST /sesion/google      entra con Google (y suma los pedidos de este dispositivo) · GET /mis-pedidos · POST /mis-pedidos/vincular
+//   GET  /buzon              buzón de pruebas (mensajes que en DEV no se envían), con la clave interna
 import { cargarCatalogo, limpiarCacheCatalogo } from './catalogo.ts';
 import { firmarPedido, verificarPedido } from './link.ts';
 import { armarPedidoTiendanube, validarPedido } from './pedido.ts';
+import { leerBuzon } from './buzon.ts';
+import { cerrarSesion, cerrarTodas, cookieBorrada, cookieSesion, crearSesion, leerSesion, type D1 } from './sesion.ts';
+import { clienteDesdeGoogle, pedidosDelCliente, verificarTokenGoogle, vincularPedido } from './cuentas.ts';
 import { TiendanubeError, tiendanube, type Env } from './tiendanube.ts';
 
 type Deps = { fetch: typeof fetch; ahora: () => number };
@@ -34,7 +40,7 @@ function json(data: unknown, status: number, origin: string | null, extra: Recor
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
-      ...(origin ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {}),
+      ...(origin ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Credentials': 'true', Vary: 'Origin' } : {}),
       ...extra,
     },
   });
@@ -96,6 +102,28 @@ export function seguimiento(order: any, preparacion?: string) {
   };
 }
 
+// Pedidos guardados en el dispositivo (links firmados): solo se suman los que tienen firma válida.
+async function vincularPedidosLocales(db: D1, clienteId: number, lista: unknown, secret: string, ahora: number) {
+  if (!Array.isArray(lista)) return 0;
+  let n = 0;
+  for (const p of lista.slice(0, 20)) {
+    const id = String((p as any)?.id ?? ''), t = String((p as any)?.t ?? '');
+    if (!/^\d{1,15}$/.test(id) || !(await verificarPedido(id, t, secret))) continue;
+    const numero = Number((p as any)?.numero);
+    await vincularPedido(db, clienteId, Number(id), Number.isInteger(numero) && numero > 0 ? numero : 0, ahora);
+    n++;
+  }
+  return n;
+}
+
+// Etiqueta corta para la lista de "Mis pedidos" (el detalle exacto está en el seguimiento).
+async function resumenPedido(api: (p: string) => Promise<any>, pedidoId: number, secret: string) {
+  const order = await api(`/orders/${pedidoId}?fields=id,number,created_at,status,payment_status,shipping_status,shipping_option,owner_note,total`).catch(() => null);
+  if (!order) return null;
+  const s = seguimiento(order);
+  return { id: String(pedidoId), t: await firmarPedido(pedidoId, secret), numero: s.numero, fecha: s.fecha, etapa: s.etapa, pago: s.pago, total: s.total, entrega: s.entrega };
+}
+
 // En Workers, fetch no puede llamarse como método de otro objeto ("Illegal invocation").
 const depsPorDefecto: Deps = { fetch: (input, init) => fetch(input, init), ahora: () => Date.now() };
 
@@ -108,7 +136,7 @@ export async function handle(request: Request, env: Env, deps: Deps = depsPorDef
     if (!origenOk) return new Response(null, { status: 403 });
     return new Response(null, { status: 204, headers: {
       'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST', 'Access-Control-Allow-Headers': 'Content-Type',
-      'Access-Control-Max-Age': '600', Vary: 'Origin',
+      'Access-Control-Allow-Credentials': 'true', 'Access-Control-Max-Age': '600', Vary: 'Origin',
     } });
   }
 
@@ -123,6 +151,61 @@ export async function handle(request: Request, env: Env, deps: Deps = depsPorDef
       if (!claveInternaValida(request, env)) return json({ errores: ['No autorizado.'] }, 401, null);
       const items = await cargarCatalogo(api, true, deps.ahora());
       return json({ items, costos: true }, 200, null);
+    }
+
+    // Sesión del cliente. Sin base configurada: sin cuentas (el sitio sigue funcionando).
+    if (request.method === 'GET' && url.pathname === '/sesion') {
+      if (!env.DB) return json({ cliente: null, cuentas: false }, 200, cors);
+      const { cliente, renovada } = await leerSesion(env.DB, request, deps.ahora());
+      return json({ cliente: cliente ? { nombre: cliente.nombre, email: cliente.email } : null, cuentas: !!env.GOOGLE_CLIENT_ID, googleClientId: env.GOOGLE_CLIENT_ID || '' }, 200, cors, renovada ? { 'Set-Cookie': renovada } : {});
+    }
+    if (request.method === 'POST' && url.pathname === '/sesion/google') {
+      if (!origenOk) return json({ errores: ['Origen no permitido.'] }, 403, null);
+      if (!env.DB || !env.GOOGLE_CLIENT_ID) return json({ errores: ['Las cuentas no están disponibles.'] }, 503, cors);
+      const ip = request.headers.get('CF-Connecting-IP') || '';
+      if (ip && superaLimite(`login:${ip}`, 20, 10 * 60_000, deps.ahora())) return json({ errores: ['Demasiados intentos. Probá en unos minutos.'] }, 429, cors);
+      const crudo = await request.text();
+      if (crudo.length > 10_000) return json({ errores: ['Pedido demasiado grande.'] }, 413, cors);
+      let body: any = null;
+      try { body = JSON.parse(crudo); } catch { body = null; }
+      const g = await verificarTokenGoogle(body?.credential, env.GOOGLE_CLIENT_ID, deps.ahora(), deps.fetch);
+      if (!g) return json({ errores: ['No pudimos verificar tu cuenta de Google. Probá de nuevo.'] }, 401, cors);
+      const ahora = deps.ahora();
+      const clienteId = await clienteDesdeGoogle(env.DB, g, ahora);
+      const token = await crearSesion(env.DB, clienteId, ahora, String(request.headers.get('User-Agent') || ''));
+      const sumados = await vincularPedidosLocales(env.DB, clienteId, body?.pedidos, env.LINK_SECRET || '', ahora);
+      return json({ cliente: { nombre: g.nombre, email: g.email }, sumados }, 200, cors, { 'Set-Cookie': cookieSesion(token) });
+    }
+    if (url.pathname === '/mis-pedidos' || url.pathname === '/mis-pedidos/vincular') {
+      if (!env.DB) return json({ errores: ['Las cuentas no están disponibles.'] }, 503, cors);
+      if (request.method === 'POST' && !origenOk) return json({ errores: ['Origen no permitido.'] }, 403, null);
+      const { cliente, renovada } = await leerSesion(env.DB, request, deps.ahora());
+      if (!cliente) return json({ errores: ['Tenés que entrar a tu cuenta.'] }, 401, cors);
+      const extra: Record<string, string> = renovada ? { 'Set-Cookie': renovada } : {};
+      if (request.method === 'POST' && url.pathname === '/mis-pedidos/vincular') {
+        const body: any = await request.json().catch(() => ({}));
+        return json({ sumados: await vincularPedidosLocales(env.DB, cliente.id, body?.pedidos, env.LINK_SECRET || '', deps.ahora()) }, 200, cors, extra);
+      }
+      if (request.method === 'GET' && url.pathname === '/mis-pedidos') {
+        const filas = await pedidosDelCliente(env.DB, cliente.id);
+        const pedidos = (await Promise.all(filas.map((f) => resumenPedido(api, f.pedido_id, env.LINK_SECRET || '')))).filter(Boolean);
+        return json({ pedidos }, 200, cors, extra);
+      }
+    }
+    if (request.method === 'POST' && (url.pathname === '/sesion/cerrar' || url.pathname === '/sesion/cerrar-todas')) {
+      if (!origenOk) return json({ errores: ['Origen no permitido.'] }, 403, null);
+      if (env.DB) {
+        if (url.pathname === '/sesion/cerrar-todas') {
+          const { cliente } = await leerSesion(env.DB, request, deps.ahora());
+          if (!cliente) return json({ errores: ['Tenés que entrar a tu cuenta.'] }, 401, cors, { 'Set-Cookie': cookieBorrada() });
+          await cerrarTodas(env.DB, cliente.id);
+        } else await cerrarSesion(env.DB, request);
+      }
+      return json({ ok: true }, 200, cors, { 'Set-Cookie': cookieBorrada() });
+    }
+    if (request.method === 'GET' && url.pathname === '/buzon') {
+      if (!claveInternaValida(request, env)) return json({ errores: ['No autorizado.'] }, 401, null);
+      return json({ mensajes: env.DB ? await leerBuzon(env.DB) : [] }, 200, null);
     }
 
     if (request.method === 'POST' && url.pathname === '/pedido') {
@@ -154,6 +237,10 @@ export async function handle(request: Request, env: Env, deps: Deps = depsPorDef
 
       const creado = await api('/orders', { method: 'POST', body: JSON.stringify(armado.body) });
       const token = await firmarPedido(creado.id, env.LINK_SECRET || '');
+      if (env.DB) {
+        const { cliente } = await leerSesion(env.DB, request, ahora).catch(() => ({ cliente: null }));
+        if (cliente) await vincularPedido(env.DB, cliente.id, Number(creado.id), Number(creado.number) || 0, ahora).catch(() => {});
+      }
       return json({ numero: creado.number, total: armado.total, seguimiento: `/pedido/${creado.id}?t=${token}` }, 201, cors);
     }
 

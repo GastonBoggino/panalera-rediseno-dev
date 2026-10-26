@@ -8,11 +8,15 @@
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
   "preview_urls": false,
+  // Base del sitio (cuentas de clientes), también en la cuenta de Gaston.
+  "d1_databases": [{ "binding": "DB", "database_name": "panalera-sitio-dev", "database_id": "3e63d087-c47e-4ce6-b771-3f87a4cd6735", "migrations_dir": "migrations" }],
   "assets": { "directory": ".publicar-dev", "binding": "ASSETS", "run_worker_first": true },
   "vars": {
     "TIENDANUBE_STORE_ID": "8415696",
     "ALLOWED_ORIGINS": "",
-    "MINIMO_PEDIDO": "50000"
+    "MINIMO_PEDIDO": "50000",
+    // "Continuar con Google": ID público del proyecto de Google Cloud "Panalera Mayoritas" (cuenta gastonboggino3, en prueba).
+    "GOOGLE_CLIENT_ID": "965011031322-64g3cskqs435a44fubqp6on0pibc9dov.apps.googleusercontent.com"
   }
   // Secretos (wrangler secret put): TIENDANUBE_ACCESS_TOKEN, TIENDANUBE_USER_AGENT, LINK_SECRET,
   // TURNSTILE_SECRET (de prueba en DEV), CLAVE_INTERNA, ACCESO_DEV (contraseña: la carga el usuario).

@@ -1,0 +1,12 @@
+{
+  // PANEL DE PRUEBAS EN LÍNEA — cuenta de Gaston (NO la de Samu). Habla solo con el ERP de prueba en línea.
+  // Publicar (desde esta carpeta): node generar-catalogo.mjs && npx wrangler deploy --config wrangler.panel-online.jsonc
+  "name": "panalera-panel-dev",
+  "account_id": "0119a8565f1af9eba9a20414c04e9665",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "services": [{ "binding": "ERP", "service": "panalera-erp-dev" }],
+  "rules": [{ "type": "Text", "globs": ["**/*.html"], "fallthrough": true }]
+}

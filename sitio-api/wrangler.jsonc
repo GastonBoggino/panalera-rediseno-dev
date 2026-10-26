@@ -2,11 +2,17 @@
   // Servidor del sitio propio — SOLO DEV. No publicar sin autorización expresa.
   "name": "panalera-sitio-api-dev",
   "main": "src/index.ts",
+  // Cuenta de Gaston explícita, por si alguien corre un comando remoto con esta configuración.
+  "account_id": "0119a8565f1af9eba9a20414c04e9665",
+  // En local (wrangler dev --local) la base es un archivo en .wrangler/, no la de Cloudflare.
+  "d1_databases": [{ "binding": "DB", "database_name": "panalera-sitio-dev", "database_id": "3e63d087-c47e-4ce6-b771-3f87a4cd6735", "migrations_dir": "migrations" }],
   "compatibility_date": "2026-09-01",
   "vars": {
     "TIENDANUBE_STORE_ID": "8415696",
     "ALLOWED_ORIGINS": "http://localhost:8787,http://127.0.0.1:8787,https://magnificent-kashata-82d1c0.netlify.app",
-    "MINIMO_PEDIDO": "50000"
+    "MINIMO_PEDIDO": "50000",
+    // "Continuar con Google": ID público del proyecto de Google Cloud "Panalera Mayoritas" (cuenta gastonboggino3, en prueba).
+    "GOOGLE_CLIENT_ID": "965011031322-64g3cskqs435a44fubqp6on0pibc9dov.apps.googleusercontent.com"
   }
   // Secretos en .dev.vars (no se versiona): TIENDANUBE_ACCESS_TOKEN, TIENDANUBE_USER_AGENT, LINK_SECRET, TURNSTILE_SECRET, CLAVE_INTERNA
 }

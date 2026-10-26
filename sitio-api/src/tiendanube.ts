@@ -2,6 +2,8 @@
 // la tienda real queda bloqueada aunque alguien cambie la configuración.
 
 // Solo la tienda demo de Partners. La vieja tienda de prueba "x" (8413613) ya no se usa.
+import type { D1 } from './sesion.ts';
+
 export const TIENDAS_DEV = ['8415696'];
 export const TIENDA_REAL = '6357775';
 
@@ -14,6 +16,10 @@ export type Env = {
   MINIMO_PEDIDO?: string;
   LINK_SECRET?: string;
   TURNSTILE_SECRET?: string;
+  // Base del sitio (cuentas de clientes). Sin base, el sitio funciona igual, solo sin cuentas.
+  DB?: D1;
+  // ID de cliente de Google (público) para "Continuar con Google".
+  GOOGLE_CLIENT_ID?: string;
 };
 
 export class TiendanubeError extends Error {

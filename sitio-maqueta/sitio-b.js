@@ -1,8 +1,9 @@
 /* Sitio propio (plan B) — SOLO DEV.
    Conecta la maqueta con sitio-api: catálogo real, checkout propio sin cuentas que crea el
-   pedido "a confirmar" en la tienda de prueba, y seguimiento por link privado.
+   pedido "a confirmar" en la tienda de prueba, seguimiento por link privado y cuentas
+   opcionales con "Continuar con Google" (sin contraseñas; comprar sin cuenta sigue igual).
    Se carga después del script de la maqueta y reemplaza go, screen, renderCheckout,
-   coAct y renderMyOrder; el resto de la maqueta queda igual. */
+   renderAccount y renderMyOrder; el resto de la maqueta queda igual. */
 (() => {
   const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
   // Local: servidor aparte (8788). En línea: el mismo sitio sirve el servidor en /api.
@@ -19,6 +20,9 @@
   ];
   // En celular, campos de 16 px o más: si no, iPhone hace zoom al tocarlos.
   document.head.insertAdjacentHTML("beforeend", "<style>@media (max-width: 767px){input,select,textarea{font-size:16px!important}}</style>");
+  // Cuenta del cliente: la sesión viaja en una cookie segura que solo lee el servidor.
+  const cuenta = { activa: false, clientId: "", cliente: null };
+  const conSesion = (url, init = {}) => fetch(url, { ...init, credentials: "include" });
   const ck = { nombre: "", telefono: "", email: "", entrega: "retiro", calle: "", numero: "", piso: "", ciudad: "", provincia: "Santa Fe", cp: "", pago: "efectivo", nota: "", err: "", enviando: false, turnstile: "" };
 
   /* ---------- Catálogo real ---------- */
@@ -68,6 +72,7 @@
     if (phone) $("#screen").scrollTop = 0; else if (view !== "home") $("#site").scrollIntoView({ block: "start" });
     if (view === "checkout") renderCheckout();
     if (view === "myorder") renderMyOrder();
+    if (view === "account") renderAccount();
   };
   screen = function (s) {
     if (s === "checkout") {
@@ -75,7 +80,7 @@
       return go("checkout");
     }
     if (s === "order" || s === "myorder") return go("myorder");
-    if (s === "account") return toast("En esta versión no hay cuentas: seguís tu pedido con el link que te damos al enviarlo.");
+    if (s === "account") return cuenta.activa ? go("account") : toast("Seguís tu pedido con el link que te damos al enviarlo.");
     return go("home");
   };
 
@@ -178,7 +183,8 @@
       nota: ck.nota,
     };
     try {
-      const r = await fetch(`${API}/pedido`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      // Con la sesión iniciada, el pedido queda en "Mis pedidos".
+      const r = await conSesion(`${API}/pedido`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error((data.errores || ["No pudimos enviar el pedido. Probá de nuevo o escribinos por WhatsApp."]).join(" "));
       const [, id, t] = data.seguimiento.match(/\/pedido\/(\d+)\?t=([0-9a-f]+)/);
@@ -251,6 +257,7 @@
           ${o.pago !== "pagado" && o.etapa !== "cancelado" ? `<div class="card"><h3>Pago</h3><p style="margin:0">${guardado?.pago === "transferencia" ? "Transferencia: te pasamos los datos cuando confirmemos el total (se suma un 5%). Después nos mandás el comprobante por WhatsApp." : `Efectivo ${retiro ? "al retirar" : "al recibir"}.`}</p></div>` : ""}
           ${puedePedirCancelar ? `<div class="card"><h3>¿Querés cancelar?</h3><p style="margin:0 0 10px">${idx >= 2 ? "Tu pedido ya se está preparando: te vamos a contactar para resolverlo." : "Mientras no empecemos a prepararlo, se cancela al instante."}</p>
             <button class="btn btn-ghost" data-cancel-order>Botón de arrepentimiento · Pedir cancelación</button></div>` : ""}
+          ${cuenta.activa && !cuenta.cliente ? `<div class="card"><h3>Guardá tus pedidos en tu cuenta</h3><p style="margin:0 0 10px">Entrá con Google y vas a ver todos tus pedidos desde cualquier dispositivo. Sin contraseñas.</p><div data-google-btn></div></div>` : ""}
           <div class="card"><h3>Guardá este link</h3><p style="margin:0 0 8px">Con este link volvés a ver tu pedido desde cualquier dispositivo. No lo compartas.</p>
             <div class="bank"><div><span class="num" style="word-break:break-all">${esc(link)}</span><button class="copy" data-copy="${esc(link)}">Copiar</button></div></div>
             <button class="btn btn-ghost" style="margin-top:10px" data-refresh-order>Actualizar estado</button></div>
@@ -262,6 +269,7 @@
           <div class="sumrow"><span>Fecha</span><span>${esc(new Date(o.fecha).toLocaleString("es-AR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }))}</span></div>
         </aside>
       </div>`;
+    if (!silencioso) botonesGoogle();
   };
   document.addEventListener("click", e => { if (e.target.closest("[data-refresh-order]")) renderMyOrder(); });
   // Botón de arrepentimiento (Res. 424/2020): cancela si todavía no se preparó; si no, registra el pedido.
@@ -283,15 +291,116 @@
   // Mientras se ve el seguimiento, se actualiza solo (sin parpadeo) cada 15 segundos.
   setInterval(() => { if (!$("#myorder").hidden && !document.hidden) renderMyOrder(true); }, 15000);
 
+  /* ---------- Cuenta: Continuar con Google y Mis pedidos ---------- */
+  const ETIQUETA = { recibido: "Recibido", en_revision: "En revisión", confirmado: "Confirmado", preparando: "En preparación", listo: "Listo", en_camino: "En camino", entregado: "Entregado", cancelado: "Cancelado" };
+  const fechaCorta = f => new Date(f).toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric" });
+
+  function pintarBotonCuenta() {
+    $("#acctBtn").hidden = !cuenta.activa;
+    $("#acctLbl").textContent = cuenta.cliente ? (cuenta.cliente.nombre.split(" ")[0] || "Mi cuenta") : "Ingresar";
+    $("#myOrders").hidden = !cuenta.cliente && pedidosGuardados().length === 0;
+  }
+
+  // El script de Google se carga recién cuando hace falta mostrar el botón.
+  let google$ = null;
+  function cargarGoogle() {
+    if (!google$) google$ = new Promise((ok, mal) => {
+      const sc = document.createElement("script");
+      sc.src = "https://accounts.google.com/gsi/client"; sc.async = true;
+      sc.onload = () => {
+        google.accounts.id.initialize({ client_id: cuenta.clientId, callback: alEntrarConGoogle, ux_mode: "popup", auto_select: false, context: "signin" });
+        ok();
+      };
+      sc.onerror = () => { google$ = null; mal(new Error("google")); };
+      document.head.appendChild(sc);
+    });
+    return google$;
+  }
+  async function botonesGoogle() {
+    const cajas = [...document.querySelectorAll("[data-google-btn]")];
+    if (!cajas.length || !cuenta.activa || cuenta.cliente) return;
+    try { await cargarGoogle(); } catch (_) { cajas.forEach(c => c.innerHTML = '<p class="fine">No pudimos cargar el botón de Google. Recargá la página.</p>'); return; }
+    cajas.forEach(c => { c.innerHTML = ""; google.accounts.id.renderButton(c, { theme: "outline", size: "large", text: "continue_with", shape: "pill", locale: "es-419", width: 280 }); });
+  }
+
+  // Pedidos guardados en este dispositivo (con su link firmado) que se suman a la cuenta.
+  const pedidosParaSumar = () => pedidosGuardados().map(p => ({ id: p.id, t: p.t, numero: p.numero }));
+
+  async function alEntrarConGoogle(resp) {
+    try {
+      const r = await conSesion(`${API}/sesion/google`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ credential: resp.credential, pedidos: pedidosParaSumar() }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error((d.errores || ["No pudimos entrar. Probá de nuevo."]).join(" "));
+      cuenta.cliente = d.cliente;
+      pintarBotonCuenta();
+      toast(`¡Hola${d.cliente.nombre ? ", " + d.cliente.nombre.split(" ")[0] : ""}! Tus pedidos quedan guardados en tu cuenta.`);
+      if (!$("#myorder").hidden) renderMyOrder(); else go("account");
+    } catch (err) { toast(err.message); }
+  }
+
+  renderAccount = async function () {
+    const v = $("#accountView");
+    if (!cuenta.cliente) {
+      v.innerHTML = `<button class="back" data-screen="home">← Volver a la tienda</button>
+        <div class="card" style="max-width:520px;margin:0 auto"><h2 style="margin:0 0 6px">Entrá a tu cuenta</h2>
+          <p style="margin:0 0 14px">Guardá tus pedidos y miralos desde cualquier dispositivo. <b>Sin contraseñas.</b></p>
+          <div data-google-btn></div>
+          <p class="fine" style="text-align:left;margin-top:14px">No hace falta cuenta para comprar: también podés seguir tu pedido con el link que te damos al enviarlo.</p></div>`;
+      return botonesGoogle();
+    }
+    const c = cuenta.cliente;
+    v.innerHTML = `<button class="back" data-screen="home">← Volver a la tienda</button>
+      <div class="ord-head"><h2>Hola${c.nombre ? ", " + esc(c.nombre.split(" ")[0]) : ""}</h2></div>
+      <p class="fine" style="text-align:left;margin-top:0">${esc(c.email)}</p>
+      <h3>Mis pedidos</h3><div id="misPedidos"><p class="fine" style="text-align:left">Cargando tus pedidos…</p></div>
+      <div class="acts" style="margin-top:18px;display:flex;flex-wrap:wrap;gap:8px"><button class="btn btn-sun" data-screen="home">Ir a la tienda</button>
+        <button class="btn btn-ghost" data-salir>Cerrar sesión</button><button class="btn btn-ghost" data-salir-todo>Cerrar sesión en todos los dispositivos</button></div>`;
+    try {
+      const r = await conSesion(`${API}/mis-pedidos`);
+      if (r.status === 401) { cuenta.cliente = null; pintarBotonCuenta(); return renderAccount(); }
+      const { pedidos } = await r.json();
+      $("#misPedidos").innerHTML = pedidos.length ? pedidos.map(p => `<a class="card" style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;text-decoration:none;color:inherit;margin-bottom:10px" href="#pedido=${esc(p.id)}.${esc(p.t)}">
+          <span><b>Pedido #${esc(p.numero)}</b><br><small class="fine">${esc(fechaCorta(p.fecha))} · ${esc(p.entrega)}</small></span>
+          <span style="text-align:right"><span class="pill ${p.etapa === "cancelado" ? "bad" : p.etapa === "entregado" ? "ok" : "wait"}">${esc(ETIQUETA[p.etapa] || p.etapa)}</span><br><b class="num">${fmt(p.total)}</b></span></a>`).join("")
+        : `<div class="empty">Todavía no tenés pedidos en tu cuenta. Los que hagas con la sesión iniciada aparecen acá.</div>`;
+    } catch (_) { $("#misPedidos").innerHTML = `<div class="empty">No pudimos cargar tus pedidos. Probá de nuevo.</div>`; }
+  };
+
+  document.addEventListener("click", async e => {
+    const todo = e.target.closest("[data-salir-todo]"), uno = e.target.closest("[data-salir]");
+    if (!todo && !uno) return;
+    if (todo && !confirm("¿Cerrar la sesión en todos tus dispositivos?")) return;
+    await conSesion(`${API}/sesion/${todo ? "cerrar-todas" : "cerrar"}`, { method: "POST" }).catch(() => {});
+    try { google.accounts.id.disableAutoSelect(); } catch (_) {}
+    cuenta.cliente = null; pintarBotonCuenta(); go("home");
+    toast("Cerraste la sesión.");
+  });
+
+  async function iniciarCuenta() {
+    try {
+      const r = await conSesion(`${API}/sesion`);
+      const d = await r.json();
+      Object.assign(cuenta, { activa: !!(d.cuentas && d.googleClientId), clientId: d.googleClientId || "", cliente: d.cliente || null });
+    } catch (_) { cuenta.activa = false; }
+    pintarBotonCuenta();
+    // Con sesión: los pedidos hechos en este dispositivo antes de entrar se suman solos.
+    if (cuenta.cliente && pedidosGuardados().length) conSesion(`${API}/mis-pedidos/vincular`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pedidos: pedidosParaSumar() }) }).catch(() => {});
+    if (!$("#account").hidden) renderAccount();
+    if (!$("#myorder").hidden) botonesGoogle();
+  }
+
   /* ---------- Arranque ---------- */
   // Siempre a pantalla completa: sin el modo "celular" de la maqueta.
   $("#frame").className = "frame-desk";
   try { localStorage.removeItem("pm-view"); } catch (_) {}
   $("#acctBtn").hidden = true;
   $("#myOrders").hidden = pedidosGuardados().length === 0;
+  // "Mis pedidos" con sesión lleva a la cuenta (todos los pedidos); sin sesión, al último de este dispositivo.
+  $("#myOrders").addEventListener("click", e => { if (cuenta.cliente) { e.stopImmediatePropagation(); go("account"); } }, true);
   document.querySelectorAll('#jump [data-screen="account"], #jump [data-screen="order"]').forEach(b => b.hidden = true);
   go("home");
   cargarCatalogo();
+  iniciarCuenta();
   if (/pedido=/.test(location.hash)) go("myorder");
   // Abrir un link de pedido con el sitio ya abierto solo cambia el "#": hay que mostrarlo igual.
   window.addEventListener("hashchange", () => { if (/pedido=/.test(location.hash)) go("myorder"); });

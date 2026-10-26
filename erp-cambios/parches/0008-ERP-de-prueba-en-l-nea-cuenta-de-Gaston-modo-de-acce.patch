@@ -1,0 +1,139 @@
+From 5d44a719ff5f622cee00df0aa3dd4a9c6e615c0d Mon Sep 17 00:00:00 2001
+From: gaston <gastonboggino1@gmail.com>
+Date: Sat, 24 Oct 2026 11:28:35 -0300
+Subject: [PATCH 8/8] =?UTF-8?q?ERP=20de=20prueba=20en=20l=C3=ADnea=20(cuen?=
+ =?UTF-8?q?ta=20de=20Gaston):=20modo=20de=20acceso=20con=20contrase=C3=B1a?=
+ =?UTF-8?q?,=20configuraci=C3=B3n=20DEV=20propia?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ cargar-contrasena-erp-dev.sh |  3 +++
+ tests/access.test.ts         | 10 ++++++++++
+ worker/access.ts             | 17 +++++++++++++++++
+ worker/index.ts              |  6 ++++--
+ wrangler.dev-online.jsonc    | 27 +++++++++++++++++++++++++++
+ 5 files changed, 61 insertions(+), 2 deletions(-)
+ create mode 100755 cargar-contrasena-erp-dev.sh
+ create mode 100644 wrangler.dev-online.jsonc
+
+diff --git a/cargar-contrasena-erp-dev.sh b/cargar-contrasena-erp-dev.sh
+new file mode 100755
+index 0000000..8ebdc58
+--- /dev/null
++++ b/cargar-contrasena-erp-dev.sh
+@@ -0,0 +1,3 @@
++#!/bin/zsh
++# Carga (o cambia) la contraseña del ERP de prueba EN LÍNEA (cuenta de Gaston). La escribe el usuario.
++cd "${0:A:h}" && exec node_modules/.bin/wrangler secret put ACCESO_DEV --config wrangler.dev-online.jsonc
+diff --git a/tests/access.test.ts b/tests/access.test.ts
+index 760d144..37a7386 100644
+--- a/tests/access.test.ts
++++ b/tests/access.test.ts
+@@ -31,3 +31,13 @@ test("Access rechaza tokens vencidos o sin vencimiento", async () => {
+     assert.equal(await authorizeAccess(request(jwt), config, async () => publicKey), false);
+   }
+ });
++
++test("modo basic (DEV en línea): solo con la contraseña; sin contraseña configurada no entra nadie", async () => {
++  const conClave = (user: string, pass: string) => new Request("https://erp-dev.example/", { headers: { Authorization: "Basic " + btoa(`${user}:${pass}`) } });
++  const config = { WMS_ACCESS_MODE: "basic", ACCESO_DEV: "clave-de-prueba-123" };
++  assert.equal(await authorizeAccess(conClave("x", "clave-de-prueba-123"), config), true);
++  assert.equal(await authorizeAccess(conClave("x", "otra-clave-12345678"), config), false);
++  assert.equal(await authorizeAccess(new Request("https://erp-dev.example/"), config), false);
++  assert.equal(await authorizeAccess(conClave("x", ""), { WMS_ACCESS_MODE: "basic" }), false);
++  assert.equal(await authorizeAccess(conClave("x", "clave-de-prueba-123"), { WMS_ACCESS_MODE: "production" }), false, "otros modos no aceptan la contraseña");
++});
+diff --git a/worker/access.ts b/worker/access.ts
+index 8e982ce..5bdf03b 100644
+--- a/worker/access.ts
++++ b/worker/access.ts
+@@ -5,13 +5,30 @@ export type AccessConfiguration = {
+   WMS_ACCESS_TEAM_DOMAIN?: string;
+   WMS_ACCESS_AUD?: string;
+   WMS_ACCESS_ALLOWED_EMAILS?: string;
++  // Solo DEV en línea: contraseña única delante de todo (modo "basic").
++  ACCESO_DEV?: string;
+ };
+ 
++// Modo "basic" (solo DEV en línea): el navegador pide una contraseña antes de mostrar el ERP.
++// Sin contraseña configurada no entra nadie. El login del ERP (usuario + PIN) sigue igual detrás.
++export function authorizeBasic(request: Request, config: AccessConfiguration) {
++  const clave = config.ACCESO_DEV || "";
++  const auth = request.headers.get("Authorization") || "";
++  if (clave.length < 8 || !auth.startsWith("Basic ")) return false;
++  let dada = "";
++  try { dada = new TextDecoder().decode(Uint8Array.from(atob(auth.slice(6)), (c) => c.charCodeAt(0))).split(":").slice(1).join(":"); } catch { return false; }
++  if (dada.length !== clave.length) return false;
++  let diff = 0;
++  for (let i = 0; i < clave.length; i++) diff |= clave.charCodeAt(i) ^ dada.charCodeAt(i);
++  return diff === 0;
++}
++
+ // Only public verification keys are cached, never tokens or user identities.
+ const keySets = new Map<string, JWTVerifyGetKey>();
+ 
+ export async function authorizeAccess(request: Request, config: AccessConfiguration, verificationKey?: JWTVerifyGetKey): Promise<boolean> {
+   if (config.WMS_ACCESS_MODE === "optional") return true;
++  if (config.WMS_ACCESS_MODE === "basic") return authorizeBasic(request, config);
+   if (config.WMS_ACCESS_MODE !== "required") return false;
+   const team = (config.WMS_ACCESS_TEAM_DOMAIN || "").trim();
+   const audience = (config.WMS_ACCESS_AUD || "").trim();
+diff --git a/worker/index.ts b/worker/index.ts
+index 8f39fe0..2213eb6 100644
+--- a/worker/index.ts
++++ b/worker/index.ts
+@@ -49,11 +49,13 @@ function withSecurityHeaders(request: Request, response: Response) {
+ const worker = {
+   async fetch(request: Request, env: Cloudflare.Env & AccessConfiguration, ctx: ExecutionContext): Promise<Response> {
+     if (!await authorizeAccess(request, env)) {
+-        return withSecurityHeaders(request, new Response("Acceso operativo no autorizado", {
+-          status: 403,
++        const basic = env.WMS_ACCESS_MODE === "basic";
++        return withSecurityHeaders(request, new Response(basic ? "Acceso restringido: ERP de pruebas (DEV)." : "Acceso operativo no autorizado", {
++          status: basic ? 401 : 403,
+           headers: {
+             "Cache-Control": "no-store",
+             "Content-Type": "text/plain; charset=utf-8",
++            ...(basic ? { "WWW-Authenticate": 'Basic realm="ERP Panalera DEV", charset="UTF-8"' } : {}),
+           },
+         }));
+     }
+diff --git a/wrangler.dev-online.jsonc b/wrangler.dev-online.jsonc
+new file mode 100644
+index 0000000..81be286
+--- /dev/null
++++ b/wrangler.dev-online.jsonc
+@@ -0,0 +1,27 @@
++{
++  // ERP DE PRUEBA EN LÍNEA — cuenta de Gaston. NO es producción (producción está en la cuenta de Samu).
++  // Base propia (panalera-erp-dev, con datos de ejemplo), sin WhatsApp, sin R2 (sin fotos ni respaldos),
++  // detrás de una contraseña (secreto ACCESO_DEV) y conectado solo a la tienda demo 8415696.
++  // Publicar: npx wrangler deploy --config wrangler.dev-online.jsonc
++  "$schema": "./node_modules/wrangler/config-schema.json",
++  "name": "panalera-erp-dev",
++  "account_id": "0119a8565f1af9eba9a20414c04e9665",
++  "main": "./dist/server/index.js",
++  "compatibility_date": "2026-08-25",
++  "compatibility_flags": ["nodejs_compat"],
++  "workers_dev": true,
++  "preview_urls": false,
++  "assets": { "directory": "./dist/client", "binding": "ASSETS", "run_worker_first": true },
++  "triggers": { "crons": ["*/5 * * * *"] },
++  "d1_databases": [
++    { "binding": "DB", "database_name": "panalera-erp-dev", "database_id": "c3230677-28bf-4892-80d8-2e14b19c4ba6", "migrations_dir": "./drizzle" }
++  ],
++  "vars": {
++    "WMS_ENVIRONMENT": "local-review",
++    "WMS_ACCESS_MODE": "basic",
++    "TIENDANUBE_STORE_ID": "8415696",
++    "TIENDANUBE_STATUS_PUSH": "live",
++    "TIENDANUBE_WRITE_STORES": "8415696"
++  }
++  // Secretos: TIENDANUBE_ACCESS_TOKEN, TIENDANUBE_USER_AGENT, ACCESO_DEV (contraseña: la carga el usuario).
++}
+-- 
+2.50.1 (Apple Git-155)
+

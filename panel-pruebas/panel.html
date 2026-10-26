@@ -24,6 +24,10 @@
   .acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
   #log{white-space:pre-wrap;background:#1B2340;color:#fff;border-radius:12px;padding:12px;font:13px/1.5 ui-monospace,Menlo,monospace;min-height:48px}
   .err{color:#FFB4A9}
+  details.buzon{margin:12px 0}
+  details.buzon summary{cursor:pointer;font-weight:700}
+  .msg{border-top:1px solid var(--line);padding:8px 0;font-size:14px}
+  .msg pre{white-space:pre-wrap;margin:4px 0 0;font:13px/1.45 ui-monospace,Menlo,monospace;color:var(--ink)}
 </style>
 </head>
 <body>
@@ -38,6 +42,11 @@
 </header>
 <main>
   <div id="log">Listo.</div>
+  <details class="buzon card" id="buzon" hidden>
+    <summary>Buzón de pruebas <span class="meta">— mensajes que el sitio le mandaría al cliente (en DEV no se envían a nadie)</span></summary>
+    <div class="acts"><button id="buzon-actualizar">Actualizar buzón</button></div>
+    <div id="buzon-lista" class="meta">Cargando…</div>
+  </details>
   <h2 style="font-size:16px">Pedidos</h2>
   <div id="lista">Cargando…</div>
 </main>
@@ -92,6 +101,18 @@ function tarjeta(p) {
     <div class="acts">${acciones}</div></div>`;
 }
 
+// El buzón solo existe en el panel local (lo lee del servidor del sitio).
+async function cargarBuzon() {
+  const r = await fetch('/api/buzon').catch(() => null);
+  if (!r || r.status === 404) return;
+  $('#buzon').hidden = false;
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) return void ($('#buzon-lista').textContent = d.error || 'No pude leer el buzón.');
+  const fecha = (t) => new Date(t).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  $('#buzon-lista').innerHTML = (d.mensajes || []).map((m) => `<div class="msg"><span class="pill">${m.canal === 'whatsapp' ? 'WhatsApp' : 'E-mail'}</span>
+    <b>${esc(m.destino)}</b> <span class="meta">${fecha(m.creado)}${m.asunto ? ' · ' + esc(m.asunto) : ''}</span><pre>${esc(m.cuerpo)}</pre></div>`).join('') || 'Todavía no hay mensajes.';
+}
+
 async function ejecutar(url, etiqueta, boton) {
   if (ocupado) return;
   ocupado = true;
@@ -104,7 +125,8 @@ async function ejecutar(url, etiqueta, boton) {
 
 document.addEventListener('click', (e) => {
   const t = e.target.closest('button'); if (!t) return;
-  if (t.id === 'refrescar') return cargar();
+  if (t.id === 'refrescar') return cargar(), cargarBuzon();
+  if (t.id === 'buzon-actualizar') return cargarBuzon();
   if (t.id === 'importar') return ejecutar('/api/importar', 'Importando pedidos web', t);
   if (t.id === 'catalogo') return ejecutar('/api/catalogo', 'Sincronizando catálogo desde la tienda demo', t);
   if (t.dataset.accion) {
@@ -113,6 +135,7 @@ document.addEventListener('click', (e) => {
   }
 });
 cargar();
+cargarBuzon();
 </script>
 </body>
 </html>
