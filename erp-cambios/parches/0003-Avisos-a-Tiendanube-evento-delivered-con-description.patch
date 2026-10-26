@@ -1,7 +1,7 @@
 From e39ce23fea44fd4e213d165f3d90a956440fda4e Mon Sep 17 00:00:00 2001
 From: gaston <gastonboggino1@gmail.com>
 Date: Fri, 23 Oct 2026 09:14:35 -0300
-Subject: [PATCH 3/9] Avisos a Tiendanube: evento delivered con description y
+Subject: [PATCH 03/12] Avisos a Tiendanube: evento delivered con description y
  address (lo exige la API)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

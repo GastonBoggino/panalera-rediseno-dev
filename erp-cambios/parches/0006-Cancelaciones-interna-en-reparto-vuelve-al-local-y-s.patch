@@ -1,10 +1,10 @@
 From d9a5d25c82ce25d2d481668bfaa013bccb4f5524 Mon Sep 17 00:00:00 2001
 From: gaston <gastonboggino1@gmail.com>
 Date: Fri, 23 Oct 2026 10:02:05 -0300
-Subject: [PATCH 6/9] =?UTF-8?q?Cancelaciones:=20interna=20en=20reparto=20(?=
- =?UTF-8?q?vuelve=20al=20local=20y=20se=20cierra=20al=20recibir),=20pedido?=
- =?UTF-8?q?=20de=20cancelaci=C3=B3n=20del=20cliente=20como=20tarea=20urgen?=
- =?UTF-8?q?te,=20sin=20doble=20cancelaci=C3=B3n=20en=20Tiendanube?=
+Subject: [PATCH 06/12] =?UTF-8?q?Cancelaciones:=20interna=20en=20reparto?=
+ =?UTF-8?q?=20(vuelve=20al=20local=20y=20se=20cierra=20al=20recibir),=20pe?=
+ =?UTF-8?q?dido=20de=20cancelaci=C3=B3n=20del=20cliente=20como=20tarea=20u?=
+ =?UTF-8?q?rgente,=20sin=20doble=20cancelaci=C3=B3n=20en=20Tiendanube?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit

@@ -1,7 +1,7 @@
 From 00c553052a30078c189f4443fed2aaf492e98266 Mon Sep 17 00:00:00 2001
 From: gaston <gastonboggino1@gmail.com>
 Date: Fri, 23 Oct 2026 09:29:43 -0300
-Subject: [PATCH 5/9] Pendientes del equipo: las tareas pendientes viajan con
+Subject: [PATCH 05/12] Pendientes del equipo: las tareas pendientes viajan con
  los datos de pedidos (el tablero no carga admin)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

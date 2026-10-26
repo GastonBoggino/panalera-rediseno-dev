@@ -1,0 +1,52 @@
+From 72c97c7de7b10bc6d68cbb66797b59ff29f45a1b Mon Sep 17 00:00:00 2001
+From: Gaston <gaston@Gastons-MacBook-Air.local>
+Date: Mon, 26 Oct 2026 13:32:26 -0300
+Subject: [PATCH 10/12] =?UTF-8?q?Pedidos=20WEB:=20el=20WhatsApp=20solo=20d?=
+ =?UTF-8?q?ice=20'tenemos=20todo=20en=20stock'=20si=20el=20stock=20est?=
+ =?UTF-8?q?=C3=A1=20contado=20y=20alcanza?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ app/WebOrdersBoard.tsx | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/app/WebOrdersBoard.tsx b/app/WebOrdersBoard.tsx
+index c78cb29..0c7a672 100644
+--- a/app/WebOrdersBoard.tsx
++++ b/app/WebOrdersBoard.tsx
+@@ -59,7 +59,8 @@ function splitDetail(detail = "") {
+   return { address: (address || "").trim(), note: (note || "").trim() };
+ }
+ 
+-function whatsappLink(order: WebOrderRow, missing: string[]) {
++// "Tenemos todo en stock" solo si el stock está contado y alcanza; sin conteo, mensaje neutro.
++function whatsappLink(order: WebOrderRow, missing: string[], allCounted: boolean) {
+   const digits = (order.customerPhone || "").replace(/\D/g, "");
+   if (digits.length < 10) return "";
+   const phone = digits.startsWith("54") ? digits : `54${digits}`;
+@@ -67,7 +68,9 @@ function whatsappLink(order: WebOrderRow, missing: string[]) {
+   const total = order.totalAmount ? `\nTotal en efectivo: ${money(order.totalAmount)} · con transferencia: ${money(order.totalAmount * 1.05)}.` : "";
+   const text = missing.length
+     ? `Hola ${name}! Recibimos tu pedido web #${order.visibleId}. Revisamos el stock y nos faltan:\n${missing.map((m) => `• ${m}`).join("\n")}\n¿Te lo reemplazamos por otro producto o lo quitamos?`
+-    : `Hola ${name}! Recibimos tu pedido web #${order.visibleId} y tenemos todo en stock.${total}\n¿Lo confirmamos?`;
++    : allCounted
++      ? `Hola ${name}! Recibimos tu pedido web #${order.visibleId} y tenemos todo en stock.${total}\n¿Lo confirmamos?`
++      : `Hola ${name}! Recibimos tu pedido web #${order.visibleId}.${total}\n¿Lo confirmamos?`;
+   return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+ }
+ 
+@@ -120,7 +123,7 @@ export function WebOrdersBoard({ orders, productName, stockFor, storeAdminUrl, b
+         const { address, note } = splitDetail(o.deliveryDetail);
+         const commercial = o.state === "revisar" || o.state === "esperando";
+         const busy = busyId === o.id;
+-        const wa = whatsappLink(o, missing);
++        const wa = whatsappLink(o, missing, uncounted === 0);
+         const units = o.items.reduce((total, item) => total + item.qty, 0);
+         return <article key={o.id} className={`webOrderCard state-${o.state}`}>
+           <div className="webOrderTop">
+-- 
+2.50.1 (Apple Git-155)
+

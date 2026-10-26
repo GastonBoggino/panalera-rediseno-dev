@@ -73,6 +73,8 @@ h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;letter-spacing:-.
 .logo .mark svg{width:28px;height:28px}
 .logo .mark-logo{width:56px;height:56px;flex:none;display:block}
 @media (max-width:767px){.logo .mark-logo{width:46px;height:46px}}
+/* Celular: solo la jirafa (ya dice "Pañalera Mayorista"), para que entren Ingresar, Mis pedidos, WhatsApp y el carrito. */
+@media (max-width:560px){.logo .mark-logo+span{display:none}}
 .logo b{font-family:var(--display);font-size:1.08rem;line-height:1;display:block}
 .logo small{font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
 .search{grid-column:1/-1;grid-row:2;position:relative}
@@ -1178,6 +1180,6 @@ state.cart = {...DEMO_CART};
 render();
 </script>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
-<script src="sitio-b.js?v=20261026b"></script>
+<script src="sitio-b.js?v=20261026e"></script>
 </body>
 </html>

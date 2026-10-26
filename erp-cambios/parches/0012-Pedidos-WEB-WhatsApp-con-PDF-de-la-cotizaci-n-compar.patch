@@ -1,0 +1,142 @@
+From 38d77a05b05a17bd32518f46ca6dd2046768f0af Mon Sep 17 00:00:00 2001
+From: Gaston <gaston@Gastons-MacBook-Air.local>
+Date: Mon, 26 Oct 2026 14:01:29 -0300
+Subject: [PATCH 12/12] =?UTF-8?q?Pedidos=20WEB:=20WhatsApp=20con=20PDF=20d?=
+ =?UTF-8?q?e=20la=20cotizaci=C3=B3n=20(compartir=20con=20adjunto=20o=20des?=
+ =?UTF-8?q?carga=20+=20chat)=20y=20total=20seg=C3=BAn=20forma=20de=20pago?=
+ =?UTF-8?q?=20(transferencia=20con=20alias)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ app/WebOrdersBoard.tsx | 27 ++++++++++++++++++++-------
+ app/page.tsx           | 34 ++++++++++++++++++++++++++++++++++
+ 2 files changed, 54 insertions(+), 7 deletions(-)
+
+diff --git a/app/WebOrdersBoard.tsx b/app/WebOrdersBoard.tsx
+index 0c7a672..79a496f 100644
+--- a/app/WebOrdersBoard.tsx
++++ b/app/WebOrdersBoard.tsx
+@@ -59,22 +59,34 @@ function splitDetail(detail = "") {
+   return { address: (address || "").trim(), note: (note || "").trim() };
+ }
+ 
++// DEV: alias falso. En producción va el alias real del local.
++const TRANSFER_ALIAS = "test123";
++
++// El total según cómo eligió pagar: transferencia (con alias), efectivo, o los dos si no indicó.
++function totalText(order: WebOrderRow) {
++  if (!order.totalAmount) return "";
++  const pago = (order.paymentMethod || "").toLowerCase();
++  if (pago.includes("transfer")) return `\nTotal con transferencia: ${money(order.totalAmount * 1.05)}.\nAlias: ${TRANSFER_ALIAS}`;
++  if (pago.includes("efectivo")) return `\nTotal en efectivo: ${money(order.totalAmount)}.`;
++  return `\nTotal en efectivo: ${money(order.totalAmount)} · con transferencia: ${money(order.totalAmount * 1.05)}.`;
++}
++
+ // "Tenemos todo en stock" solo si el stock está contado y alcanza; sin conteo, mensaje neutro.
+-function whatsappLink(order: WebOrderRow, missing: string[], allCounted: boolean) {
++export function whatsappMessage(order: WebOrderRow, missing: string[], allCounted: boolean) {
+   const digits = (order.customerPhone || "").replace(/\D/g, "");
+-  if (digits.length < 10) return "";
++  if (digits.length < 10) return null;
+   const phone = digits.startsWith("54") ? digits : `54${digits}`;
+   const name = order.customer.split(/\s+/)[0] || "";
+-  const total = order.totalAmount ? `\nTotal en efectivo: ${money(order.totalAmount)} · con transferencia: ${money(order.totalAmount * 1.05)}.` : "";
++  const total = totalText(order);
+   const text = missing.length
+     ? `Hola ${name}! Recibimos tu pedido web #${order.visibleId}. Revisamos el stock y nos faltan:\n${missing.map((m) => `• ${m}`).join("\n")}\n¿Te lo reemplazamos por otro producto o lo quitamos?`
+     : allCounted
+       ? `Hola ${name}! Recibimos tu pedido web #${order.visibleId} y tenemos todo en stock.${total}\n¿Lo confirmamos?`
+       : `Hola ${name}! Recibimos tu pedido web #${order.visibleId}.${total}\n¿Lo confirmamos?`;
+-  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
++  return { phone, text, link: `https://wa.me/${phone}?text=${encodeURIComponent(text)}` };
+ }
+ 
+-export function WebOrdersBoard({ orders, productName, stockFor, storeAdminUrl, busyId, canEdit, canCancel, onConfirm, onEdit, onPrint, onCancel, onRefresh, refreshing }: {
++export function WebOrdersBoard({ orders, productName, stockFor, storeAdminUrl, busyId, canEdit, canCancel, onConfirm, onEdit, onPrint, onCancel, onWhatsApp, onRefresh, refreshing }: {
+   orders: WebOrderRow[];
+   productName: (sku: string) => string;
+   stockFor: (sku: string) => StockInfo;
+@@ -86,6 +98,7 @@ export function WebOrdersBoard({ orders, productName, stockFor, storeAdminUrl, b
+   onEdit: (id: string) => void;
+   onPrint: (id: string) => void;
+   onCancel: (id: string) => void;
++  onWhatsApp: (id: string, message: { phone: string; text: string; link: string }) => void;
+   onRefresh: () => void;
+   refreshing: boolean;
+ }) {
+@@ -123,7 +136,7 @@ export function WebOrdersBoard({ orders, productName, stockFor, storeAdminUrl, b
+         const { address, note } = splitDetail(o.deliveryDetail);
+         const commercial = o.state === "revisar" || o.state === "esperando";
+         const busy = busyId === o.id;
+-        const wa = whatsappLink(o, missing, uncounted === 0);
++        const wa = whatsappMessage(o, missing, uncounted === 0);
+         const units = o.items.reduce((total, item) => total + item.qty, 0);
+         return <article key={o.id} className={`webOrderCard state-${o.state}`}>
+           <div className="webOrderTop">
+@@ -157,7 +170,7 @@ export function WebOrdersBoard({ orders, productName, stockFor, storeAdminUrl, b
+           </tbody></table>}
+           <div className="webOrderActions">
+             {commercial && <button type="button" className="primary" disabled={busy} onClick={() => onConfirm(o.id)} title={missing.length ? "Hay faltantes: confirmá solo si el cliente aceptó" : uncounted ? "Hay productos sin conteo de stock: verificalos antes de confirmar" : "Stock OK: confirmar y pasar al depósito"}>{busy ? <RefreshCw size={16} className="rotatingIcon" aria-hidden="true" /> : <CircleCheck size={16} aria-hidden="true" />}{missing.length ? "Confirmar igual" : uncounted ? "Confirmar" : "Stock OK → Confirmar"}</button>}
+-            {wa ? <a className="whatsapp" href={wa} target="_blank" rel="noopener noreferrer" title="Abre WhatsApp con el mensaje armado (lo enviás vos)">WhatsApp al cliente</a> : <button type="button" disabled title="Sin teléfono válido">WhatsApp al cliente</button>}
++            {wa ? <button type="button" className="whatsapp" disabled={busy} onClick={() => onWhatsApp(o.id, wa)} title="Arma el PDF de la cotización y abre WhatsApp con el mensaje (lo enviás vos)">WhatsApp + cotización PDF</button> : <button type="button" disabled title="Sin teléfono válido">WhatsApp al cliente</button>}
+             {commercial && canEdit && o.paymentStatus !== "paid" && <button type="button" disabled={busy} onClick={() => onEdit(o.id)}><Pencil size={16} aria-hidden="true" />Editar productos</button>}
+             <button type="button" disabled={busy} onClick={() => onPrint(o.id)}><Printer size={16} aria-hidden="true" />Imprimir cotización</button>
+             {o.platformId && storeAdminUrl && <a href={`${storeAdminUrl}/admin/orders/${encodeURIComponent(o.platformId)}`} target="_blank" rel="noopener noreferrer"><ExternalLink size={16} aria-hidden="true" />Ver en Tiendanube</a>}
+diff --git a/app/page.tsx b/app/page.tsx
+index 1352b6d..146ea6f 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -7507,6 +7507,39 @@ if (has("productBarcodeAliases")) setProductBarcodeAliases(current => catalogPar
+     } finally { setQuotationBusy(false); }
+   }
+ 
++  // Pedidos WEB: PDF de la cotización + mensaje. Si el navegador deja compartir archivos (celular, Safari),
++  // sale por la hoja de compartir con el PDF adjunto; si no, se descarga el PDF y se abre WhatsApp con el texto.
++  async function sendWebOrderWhatsApp(order: Order, message: { phone: string; text: string; link: string }) {
++    if (workflowSavingRef.current) return;
++    workflowSavingRef.current = `${order.id}:whatsapp`;
++    setWorkflowSavingKey(workflowSavingRef.current);
++    // La ventana se abre en el clic (si no, el navegador la bloquea) y después se le pone la dirección.
++    const canShareFiles = typeof navigator.canShare === "function" && navigator.canShare({ files: [new File([""], "x.pdf", { type: "application/pdf" })] });
++    const whatsappWindow = canShareFiles ? null : window.open("", "_blank");
++    try {
++      const response = await fetch(`/api/warehouse?scope=quotation&orderId=${encodeURIComponent(order.id)}`, { cache: "no-store" });
++      const data = await response.json() as { sale?: SaleRecord; error?: string };
++      if (!response.ok || !data.sale) throw new Error(data.error || "No se pudo cargar la cotización.");
++      const quotation = { orderId: order.id, issuedAt: data.sale.createdAt || order.quoteSentAt || new Date().toISOString(), sale: data.sale };
++      const doc = await buildRemittancePdf({ orderId: quotation.orderId, series: "COT", remittanceNumber: Number(quotation.orderId.replace(/\D/g, "")) || 1, issuedAt: quotation.issuedAt, sale: quotation.sale }, "COTIZACIÓN");
++      const fileName = `Cotizacion-${visibleOrderId(order)}.pdf`;
++      const file = new File([doc.output("blob")], fileName, { type: "application/pdf" });
++      if (canShareFiles) await navigator.share({ files: [file], text: message.text });
++      else {
++        await doc.save(fileName, { returnPromise: true });
++        if (whatsappWindow) whatsappWindow.location.href = message.link; else window.open(message.link, "_blank");
++        showSystemToast("success", "Cotización lista", `PDF descargado (${fileName}). Adjuntalo en el chat de WhatsApp que se abrió.`);
++      }
++      if (["draft", "quote_sent"].includes(order.commercialStatus || "")) await saveWarehouse("mark-quotation-downloaded", { orderId: order.id, total: quotation.sale.total, items: quotation.sale.items, operator: user?.name || "" });
++    } catch (error) {
++      whatsappWindow?.close();
++      if (!(error instanceof DOMException && error.name === "AbortError")) showSystemToast("error", "WhatsApp", error instanceof Error ? error.message : "No se pudo preparar el WhatsApp.");
++    } finally {
++      workflowSavingRef.current = "";
++      setWorkflowSavingKey("");
++    }
++  }
++
+   async function reopenQuotation(order: Order, download = false, viaQr = false) {
+     if (workflowSavingRef.current) return;
+     workflowSavingRef.current = `${order.id}:pdf`;
+@@ -8472,6 +8505,7 @@ if (has("productBarcodeAliases")) setProductBarcodeAliases(current => catalogPar
+             onConfirm={(id) => { const order = orders.find((item) => item.id === id); if (order) void updateOrderWorkflow(order, { commercialStatus: "confirmed" }); }}
+             onEdit={(id) => { const order = orders.find((item) => item.id === id); if (order) void editQuotation(order); }}
+             onPrint={(id) => { const order = orders.find((item) => item.id === id); if (order) void reopenQuotation(order); }}
++            onWhatsApp={(id, message) => { const order = orders.find((item) => item.id === id); if (order) void sendWebOrderWhatsApp(order, message); }}
+             onCancel={(id) => {
+               const order = orders.find((item) => item.id === id);
+               if (!order) return;
+-- 
+2.50.1 (Apple Git-155)
+

@@ -1,0 +1,33 @@
+From e4d8973935999d9b070a0bfa6a821c428658a5a2 Mon Sep 17 00:00:00 2001
+From: Gaston <gaston@Gastons-MacBook-Air.local>
+Date: Mon, 26 Oct 2026 13:53:00 -0300
+Subject: [PATCH 11/12] =?UTF-8?q?Pedidos=20web=20en=20etapa=20comercial=20?=
+ =?UTF-8?q?solo=20en=20'Pedidos=20WEB'=20(fuera=20de=20la=20lista=20Cotiza?=
+ =?UTF-8?q?ci=C3=B3n=20de=20Pedidos);=20al=20confirmarse=20pasan=20al=20de?=
+ =?UTF-8?q?p=C3=B3sito?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ app/page.tsx | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/app/page.tsx b/app/page.tsx
+index 11c9d73..1352b6d 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -3371,7 +3371,8 @@ if (has("productBarcodeAliases")) setProductBarcodeAliases(current => catalogPar
+   }), [orders, orderSessionsById, orderProgressById, deliveredOrderIds, inRouteOrderIds, readyToDispatch, cancelRequestIds, webCancelledInRouteIds]);
+   const commercialFilteredOrders = useMemo(() => {
+     const query = orderQuery.trim().toLowerCase();
+-    return orders.filter((order) => ["draft", "quote_sent"].includes(order.commercialStatus || "confirmed") && (!hideSentQuotations || order.commercialStatus !== "quote_sent" || !(order.quoteLastSentAt || order.quoteSentAt)) && (!hideOldQuotations || !(Date.now() - operationalDate(order.quoteLastSentAt || order.quoteSentAt || order.date).getTime() > 5 * 86400000)) && !incidentOrderIds.has(order.id) && !pendingSubstitutionsByOrder[order.id]?.length && !stockSkusByOrder[order.id]?.length && !localIncidentCases.some(item=>item.orderId===order.id) && (
++    // Los pedidos web en etapa comercial se atienden solo en "Pedidos WEB"; al confirmarse pasan al depósito.
++    return orders.filter((order) => ["draft", "quote_sent"].includes(order.commercialStatus || "confirmed") && !isWebOrder(order.source) && (!hideSentQuotations || order.commercialStatus !== "quote_sent" || !(order.quoteLastSentAt || order.quoteSentAt)) && (!hideOldQuotations || !(Date.now() - operationalDate(order.quoteLastSentAt || order.quoteSentAt || order.date).getTime() > 5 * 86400000)) && !incidentOrderIds.has(order.id) && !pendingSubstitutionsByOrder[order.id]?.length && !stockSkusByOrder[order.id]?.length && !localIncidentCases.some(item=>item.orderId===order.id) && (
+       !query || visibleOrderId(order).toLowerCase().includes(query) || order.customer.toLowerCase().includes(query) || (order.customerPhone || "").includes(query)
+     ));
+   }, [orders, orderQuery, incidentOrderIds, pendingSubstitutionsByOrder, stockSkusByOrder, localIncidentCases, hideOldQuotations, hideSentQuotations]);
+-- 
+2.50.1 (Apple Git-155)
+

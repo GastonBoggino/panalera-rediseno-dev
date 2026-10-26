@@ -113,6 +113,32 @@ Hacé un pedido con **retiro**, importalo y avanzalo con el panel. En cada paso 
 - [ ] **J6. Muchos pedidos seguidos desde la misma conexión.** Más de 5 en 10 minutos. → "Demasiados pedidos seguidos".
 - [ ] **J5. Recargar en medio del checkout.** → Se pierde lo escrito pero no se crea ningún pedido.
 
+## K. Cuentas de clientes (Continuar con Google)
+
+- [ ] **K1. Entrar.** Tocá **Ingresar** → **Continuar con Google** (cuenta de prueba autorizada). → "¡Hola, …!" y la pantalla "Mi cuenta".
+- [ ] **K2. Mis pedidos.** → Lista con número, fecha, entrega, estado y total; al tocar uno se abre el seguimiento.
+- [ ] **K3. Pedidos del dispositivo.** Hacé un pedido sin cuenta y después entrá con Google. → Ese pedido aparece en "Mis pedidos" ("Sumamos 1 pedido…").
+- [ ] **K4. Pedido con la sesión iniciada.** → Aparece en "Mis pedidos"; en la tienda demo figura dentro de la ficha del cliente, con el e-mail de la cuenta.
+- [ ] **K5. Otro dispositivo.** Entrá con la misma cuenta desde el celular. → Mismos pedidos.
+- [ ] **K6. Cerrar sesión / en todos los dispositivos.** → Vuelve a decir "Ingresar"; con "todos", el otro dispositivo también queda afuera.
+- [ ] **K7. Comprar sin cuenta.** Sin entrar, hacé un pedido. → Funciona igual que siempre.
+
+## L. Cotización y logo (sitio)
+
+- [ ] **L1. Imprimir cotización.** En la pantalla del pedido, "Imprimir cotización". → Hoja con logo, datos del local, productos, total en efectivo y con transferencia, y la aclaración "no es factura".
+- [ ] **L2. Logo.** Encabezado con la jirafa; en la pestaña del navegador también. En el celular entran jirafa, Ingresar, Mis pedidos, WhatsApp y carrito (sin cortarse).
+
+## M. ERP: Pedidos WEB
+
+- [ ] **M1. Menú.** Debajo de "Pedidos" aparece **Pedidos WEB** con el número de pedidos para revisar.
+- [ ] **M2. Estados.** Un pedido nuevo está en **Revisar stock**; avanzándolo pasa a En curso / Entregados; cancelado → Cancelados. Marcas "pidió cancelar" y "volver al local".
+- [ ] **M3. Productos y stock.** Al desplegar: cada producto con "Hay N", "Faltan N" (rojo) o "Sin conteo".
+- [ ] **M4. Confirmar.** "Stock OK → Confirmar" (o "Confirmar"/"Confirmar igual"). → Pasa a En curso y el cliente ve "Confirmado".
+- [ ] **M5. WhatsApp al cliente.** Abre WhatsApp con el mensaje armado (faltantes si los hay; "todo en stock" solo si está contado).
+- [ ] **M6. Cancelar.** Cotización → queda "no aceptado" y el cliente ve "Cancelado"; ya confirmado → pide PIN.
+- [ ] **M7. Ver en Tiendanube.** Abre el pedido en el panel de la tienda demo (nunca la real).
+- [ ] **M8. Sincronizar catálogo** (panel de pruebas). → "… nuevos, … actualizados, … incorporados al depósito".
+
 ## Lo que no se puede probar en local
 
 - **Avisos de WhatsApp** a clientes (el ERP de prueba no tiene WhatsApp).

@@ -80,10 +80,13 @@ export function seguimiento(order: any, preparacion?: string) {
   if (order.status === 'cancelled') etapa = 'cancelado';
   else if (preparacion && POR_PREPARACION[preparacion]) etapa = POR_PREPARACION[preparacion];
   else if (/delivered/.test(envio) || order.status === 'closed') etapa = 'entregado';
-  else if (/shipped|fulfilled|dispatched/.test(envio)) etapa = 'en_camino';
+  // "unshipped" contiene "shipped": se compara la palabra entera.
+  else if (/^(shipped|fulfilled|dispatched)$/.test(envio)) etapa = 'en_camino';
   else if (/packed|ready/.test(envio) && !/unpacked/.test(envio)) etapa = 'listo';
   else if (/Confirmado/i.test(nota)) etapa = 'confirmado';
   else if (/Cotizaci[oó]n enviada/i.test(nota)) etapa = 'en_revision';
+  // Un pedido con retiro nunca está "en camino": salió del depósito = listo para retirar.
+  if (etapa === 'en_camino' && (order.shipping_pickup_type === 'pickup' || /retiro/i.test(String(order.shipping_option || '')))) etapa = 'listo';
   return {
     numero: order.number,
     fecha: order.created_at,
@@ -118,9 +121,10 @@ async function vincularPedidosLocales(db: D1, clienteId: number, lista: unknown,
 
 // Etiqueta corta para la lista de "Mis pedidos" (el detalle exacto está en el seguimiento).
 async function resumenPedido(api: (p: string) => Promise<any>, pedidoId: number, secret: string) {
-  const order = await api(`/orders/${pedidoId}?fields=id,number,created_at,status,payment_status,shipping_status,shipping_option,owner_note,total`).catch(() => null);
+  const order = await api(`/orders/${pedidoId}?fields=id,number,created_at,status,payment_status,shipping_status,shipping_pickup_type,shipping_option,owner_note,total`).catch(() => null);
   if (!order) return null;
-  const s = seguimiento(order);
+  const fos = await api(`/orders/${pedidoId}/fulfillment-orders`).catch(() => []);
+  const s = seguimiento(order, Array.isArray(fos) && fos[0]?.status ? String(fos[0].status).toUpperCase() : undefined);
   return { id: String(pedidoId), t: await firmarPedido(pedidoId, secret), numero: s.numero, fecha: s.fecha, etapa: s.etapa, pago: s.pago, total: s.total, entrega: s.entrega };
 }
 
@@ -286,7 +290,7 @@ export async function handle(request: Request, env: Env, deps: Deps = depsPorDef
     const m = url.pathname.match(/^\/pedido\/(\d{1,15})$/);
     if (request.method === 'GET' && m) {
       if (!(await verificarPedido(m[1], url.searchParams.get('t') || '', env.LINK_SECRET || ''))) return json({ errores: ['Link inválido.'] }, 404, cors);
-      const order = await api(`/orders/${m[1]}?fields=id,number,created_at,status,payment_status,shipping_status,shipping_option,owner_note,total,products`);
+      const order = await api(`/orders/${m[1]}?fields=id,number,created_at,status,payment_status,shipping_status,shipping_pickup_type,shipping_option,owner_note,total,products`);
       // Si la clave no tiene permiso de preparación, se sigue solo con el estado del pedido.
       const fos = await api(`/orders/${m[1]}/fulfillment-orders`).catch(() => []);
       const preparacion = Array.isArray(fos) && fos[0]?.status ? String(fos[0].status).toUpperCase() : undefined;

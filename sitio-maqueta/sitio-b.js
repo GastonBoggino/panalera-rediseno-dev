@@ -26,13 +26,22 @@
   const ck = { nombre: "", telefono: "", email: "", entrega: "retiro", calle: "", numero: "", piso: "", ciudad: "", provincia: "Santa Fe", cp: "", pago: "efectivo", nota: "", err: "", enviando: false, turnstile: "" };
 
   /* ---------- Catálogo real ---------- */
+  // Foto real de un producto representativo de cada rubro (si no hay foto, queda el ícono).
+  const FOTO_RUBRO = { panales: /PAMPERS|HUGGIES|PA[ÑN]AL/i, cambio: /TOALL/i, bano: /SHAMPOO/i, perfumeria: /COLONIA/i, alimentacion: /MAMADERA|VASO/i, accesorios: /CHUPETE/i, adultos: /PANTS|ADULT/i, hogar: /SAFETY/i };
+  function fotoRubro(cat) {
+    const conFoto = P.filter(p => p.cat === cat && p.img);
+    const p = conFoto.find(x => FOTO_RUBRO[cat]?.test(`${x.brand} ${x.name}`)) || conFoto[0];
+    return p ? `<img src="${p.img}" alt="" loading="lazy" onerror="this.replaceWith(document.createRange().createContextualFragment(ICON['${CATS.find(c => c.id === cat)?.icon}'] || ''))">` : "";
+  }
   function heroCats() {
     $("#heroCats").innerHTML = CATS.slice(0, 7).map((c, i) => {
       const n = P.filter(p => p.cat === c.id).length;
       const sub = i === 0 ? `${n} productos · talles RN a XXXG` : `${n} productos`;
-      return `<button class="tile${i === 0 ? " main" : ""}" data-cat="${c.id}" style="background:var(${c.tint})"><i>${ICON[c.icon]}</i><span><b>${c.name}</b><small>${sub}</small></span><span class="go" aria-hidden="true">›</span></button>`;
+      const foto = fotoRubro(c.id);
+      return `<button class="tile${i === 0 ? " main" : ""}" data-cat="${c.id}" style="background:var(${c.tint})"><i class="${foto ? "foto" : ""}">${foto || ICON[c.icon]}</i><span><b>${c.name}</b><small>${sub}</small></span><span class="go" aria-hidden="true">›</span></button>`;
     }).join("");
   }
+  document.head.insertAdjacentHTML("beforeend", "<style>.tile i.foto{width:64px;height:64px;padding:4px;overflow:hidden}.tile i.foto img{width:100%;height:100%;object-fit:contain;border-radius:10px}.tile.main i.foto{width:80px;height:80px}</style>");
   async function cargarCatalogo() {
     $("#count").textContent = "Cargando catálogo…";
     try {
@@ -401,7 +410,7 @@
       const { pedidos } = await r.json();
       $("#misPedidos").innerHTML = pedidos.length ? pedidos.map(p => `<a class="card" style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;text-decoration:none;color:inherit;margin-bottom:10px" href="#pedido=${esc(p.id)}.${esc(p.t)}">
           <span><b>Pedido #${esc(p.numero)}</b><br><small class="fine">${esc(fechaCorta(p.fecha))} · ${esc(p.entrega)}</small></span>
-          <span style="text-align:right"><span class="pill ${p.etapa === "cancelado" ? "bad" : p.etapa === "entregado" ? "ok" : "wait"}">${esc(ETIQUETA[p.etapa] || p.etapa)}</span><br><b class="num">${fmt(p.total)}</b></span></a>`).join("")
+          <span style="text-align:right"><span class="pill ${p.etapa === "cancelado" ? "bad" : p.etapa === "entregado" ? "ok" : "wait"}">${esc(p.etapa === "listo" ? (/retiro/i.test(p.entrega) ? "Listo para retirar" : "Listo para el envío") : ETIQUETA[p.etapa] || p.etapa)}</span><br><b class="num">${fmt(p.total)}</b></span></a>`).join("")
         : `<div class="empty">Todavía no tenés pedidos en tu cuenta. Los que hagas con la sesión iniciada aparecen acá.</div>`;
     } catch (_) { $("#misPedidos").innerHTML = `<div class="empty">No pudimos cargar tus pedidos. Probá de nuevo.</div>`; }
   };

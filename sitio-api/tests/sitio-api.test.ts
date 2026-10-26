@@ -231,3 +231,11 @@ test('arrepentimiento con el pedido ya cobrado: no cancela solo, registra el ped
   assert.equal(r.resultado, 'solicitado');
   assert.equal(f.llamadas.some((l) => l.url.endsWith('/cancel')), false);
 });
+
+test('retiro nunca figura "en camino"; "unshipped" no es enviado', () => {
+  const base = { number: 131, status: 'open', payment_status: 'pending', owner_note: 'ERP · Confirmado por el cliente', total: '1000', products: [] };
+  assert.equal(seguimiento({ ...base, shipping_status: 'unshipped', shipping_pickup_type: 'pickup', shipping_option: 'Retiro en el local' }).etapa, 'confirmado', 'unshipped sin preparación: sigue confirmado');
+  assert.equal(seguimiento({ ...base, shipping_status: 'unshipped', shipping_pickup_type: 'pickup', shipping_option: 'Retiro en el local' }, 'READY_FOR_PICKUP').etapa, 'listo');
+  assert.equal(seguimiento({ ...base, shipping_status: 'shipped', shipping_pickup_type: 'pickup', shipping_option: 'Retiro en el local' }).etapa, 'listo', 'retiro despachado = listo para retirar');
+  assert.equal(seguimiento({ ...base, shipping_status: 'shipped', shipping_pickup_type: 'ship', shipping_option: 'Envío en Rosario' }).etapa, 'en_camino', 'con envío sí puede estar en camino');
+});
