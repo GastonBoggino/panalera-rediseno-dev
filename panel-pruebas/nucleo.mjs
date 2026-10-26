@@ -179,10 +179,16 @@ async function importar() {
   const c = r.cancellations || {};
   return [`Pedidos web importados: ${r.imported} nuevos, ${r.skipped} ya existentes.`, `Cancelaciones web revisadas: ${c.checked ?? 0} pedido(s), ${c.cancelled ?? 0} cancelado(s) en el ERP.`];
 }
+// El ERP sincroniza el catálogo por partes: se repite hasta terminar (como el botón del ERP).
 async function catalogo() {
   await verificarEntorno();
-  const r = await erp('/api/tiendanube', { action: 'import-product-catalog' });
-  return [`Catálogo sincronizado desde la tienda demo. ${r.message || ''}`.trim()];
+  let r = {}, syncId = '', vueltas = 0;
+  do {
+    r = await erp('/api/tiendanube', { action: 'import-product-catalog', syncId, full: true });
+    syncId = r.catalog?.syncId || '';
+  } while (r.catalog?.hasMore && ++vueltas < 200);
+  const c = r.catalog || {};
+  return [`Catálogo sincronizado desde la tienda demo: ${c.created || 0} nuevos, ${c.updated || 0} actualizados, ${c.unchanged || 0} sin cambios${c.operationalCreated ? `, ${c.operationalCreated} incorporados al depósito` : ''}.`];
 }
 async function listar() { await verificarEntorno(); return pedidos(); }
 

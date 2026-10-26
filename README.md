@@ -10,7 +10,7 @@ Repositorio **privado** con todo el trabajo del rediseño de panaleramayorista.c
 | `sitio-maqueta/` | El sitio propio: la maqueta conectada al catálogo real, checkout (comprar sin cuenta sigue igual), cuentas opcionales con "Continuar con Google" y "Mis pedidos", seguimiento por link privado, botón de arrepentimiento y generador de páginas para Google |
 | `sitio-api/` | Servidor del sitio (Cloudflare Worker): catálogo, pedidos, seguimiento y cancelaciones contra la API de Tiendanube (solo tienda demo); cuentas sin contraseñas (Google, sesiones de 90 días, base D1 `panalera-sitio-dev`) y buzón de pruebas |
 | `panel-pruebas/` | Herramienta para mover pedidos del ERP de prueba sin escanear (confirmar, escanear, BOX, cobrar, reparto, entregar, cancelar). Local (`server.mjs`) y en línea (`en-linea/`), con la lógica compartida en `nucleo.mjs`. El local muestra el buzón de pruebas |
-| `erp-cambios/` | **Solo los cambios** hechos al ERP, como parches sobre `panalera-mayorista-rosario` (avisos a Tiendanube en modo live para la demo, cobro registrado, cancelaciones, pendientes del equipo) y los scripts de prueba |
+| `erp-cambios/` | **Solo los cambios** hechos al ERP, como parches sobre `panalera-mayorista-rosario` (avisos a Tiendanube en modo live para la demo, cobro registrado, cancelaciones, pendientes del equipo, ERP en línea con contraseña y la pestaña **Pedidos WEB**) y los scripts de prueba |
 | `tema-ipanema-dev/` | Plan A: plantilla Ipanema de la tienda demo con el diseño de la maqueta (`piloto-codigo/aplicar.py` lo genera) |
 | `piloto-codigo/` | Código del plan A (bloques de código, colores, encabezado, tarjetas) |
 | `pruebas/` | Ayudantes para correr los casos de prueba (crear pedidos, avanzar pasos, botón de arrepentimiento) |

@@ -225,6 +225,8 @@
     cancelado: ["Pedido cancelado", "Si tenés dudas, escribinos por WhatsApp."],
   };
 
+  // Último pedido mostrado (para imprimir la cotización).
+  let pedidoMostrado = null;
   renderMyOrder = async function (silencioso = false) {
     const v = $("#myOrderView"), ref = refActual();
     if (!ref) { v.innerHTML = `<div class="empty">Todavía no hiciste pedidos desde este dispositivo. Si tenés el link de tu pedido, abrilo para verlo.</div>`; return; }
@@ -235,6 +237,7 @@
       if (!r.ok) throw new Error();
       o = await r.json();
     } catch (_) { v.innerHTML = `<div class="empty">No pudimos abrir este pedido. Revisá el link o escribinos por WhatsApp.</div>`; return; }
+    pedidoMostrado = o;
     const retiro = /retiro/i.test(o.entrega), idx = ETAPAS[o.etapa] ?? 0;
     const pasos = ["Recibido", "En revisión", o.etapa === "preparando" ? "En preparación" : "Confirmado", retiro ? "Listo para retirar" : o.etapa === "listo" ? "Listo para el envío" : "En camino", "Entregado"];
     let [titulo, texto] = TEXTO[o.etapa] || TEXTO.recibido;
@@ -267,11 +270,47 @@
           <div class="sumrow total"><span>Total</span><b class="num">${fmt(o.total)}</b></div>
           <div class="sumrow"><span>Entrega</span><span>${esc(o.entrega)}</span></div>
           <div class="sumrow"><span>Fecha</span><span>${esc(new Date(o.fecha).toLocaleString("es-AR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }))}</span></div>
+          <button class="btn btn-ghost" style="margin-top:12px;width:100%" data-print-quote>Imprimir cotización</button>
         </aside>
       </div>`;
     if (!silencioso) botonesGoogle();
   };
   document.addEventListener("click", e => { if (e.target.closest("[data-refresh-order]")) renderMyOrder(); });
+
+  // Cotización para imprimir o guardar en PDF (los precios se confirman con el stock: no es factura).
+  document.head.insertAdjacentHTML("beforeend", `<style>
+    #cotizacionImprimir{display:none}
+    @media print{
+      body>*:not(#cotizacionImprimir){display:none!important}
+      #cotizacionImprimir{display:block;font:12pt/1.4 Figtree,system-ui,sans-serif;color:#000;padding:0 4mm}
+      #cotizacionImprimir header{display:flex;align-items:center;gap:14px;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:12px}
+      #cotizacionImprimir header img{width:70px;height:70px}
+      #cotizacionImprimir h1{font-size:18pt;margin:0}
+      #cotizacionImprimir table{width:100%;border-collapse:collapse;margin:10px 0}
+      #cotizacionImprimir th,#cotizacionImprimir td{border-bottom:1px solid #999;padding:5px 4px;text-align:left;vertical-align:top}
+      #cotizacionImprimir .n{text-align:right;white-space:nowrap}
+      #cotizacionImprimir .tot td{border:0;font-weight:700}
+      #cotizacionImprimir .marca{border:2px solid #000;padding:4px 10px;display:inline-block;font-weight:700;margin:6px 0}
+      #cotizacionImprimir small{color:#333}
+      @page{margin:12mm}
+    }</style>`);
+  document.addEventListener("click", e => {
+    if (!e.target.closest("[data-print-quote]") || !pedidoMostrado) return;
+    const o = pedidoMostrado, guardado = pedidosGuardados().find(x => String(x.numero) === String(o.numero));
+    const fecha = new Date(o.fecha).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    let caja = $("#cotizacionImprimir");
+    if (!caja) { caja = document.createElement("div"); caja.id = "cotizacionImprimir"; document.body.appendChild(caja); }
+    caja.innerHTML = `<header><img src="img/logo-112.png" alt=""><div><h1>Cotización · Pedido #${esc(o.numero)}</h1>
+        <small>Pañalera Mayorista · Garay 1249, Rosario · CUIT 20-38901542-4 · WhatsApp 341 753-5218</small></div></header>
+      <p><b>Fecha:</b> ${esc(fecha)} · <b>Entrega:</b> ${esc(o.entrega)}${guardado?.pago ? ` · <b>Pago elegido:</b> ${guardado.pago === "transferencia" ? "Transferencia (+5%)" : "Efectivo"}` : ""}</p>
+      ${o.etapa === "cancelado" ? '<p class="marca">PEDIDO CANCELADO</p>' : ""}
+      <table><thead><tr><th>Cant.</th><th>Producto</th><th class="n">Precio</th><th class="n">Subtotal</th></tr></thead><tbody>
+        ${o.items.map(i => `<tr><td>${esc(i.cantidad)}</td><td>${esc(i.nombre)}</td><td class="n">${fmt(i.precio)}</td><td class="n">${fmt(i.precio * i.cantidad)}</td></tr>`).join("")}
+      </tbody><tfoot><tr class="tot"><td></td><td>Total en efectivo</td><td></td><td class="n">${fmt(o.total)}</td></tr>
+        <tr class="tot"><td></td><td>Total con transferencia (+5%)</td><td></td><td class="n">${fmt(Math.round(o.total * 1.05))}</td></tr></tfoot></table>
+      <p><small>Precios sujetos a confirmación de stock: te confirmamos el total final por WhatsApp antes de preparar el pedido. El envío se cotiza aparte. Este documento no es una factura.</small></p>`;
+    window.print();
+  });
   // Botón de arrepentimiento (Res. 424/2020): cancela si todavía no se preparó; si no, registra el pedido.
   document.addEventListener("click", async e => {
     const b = e.target.closest("[data-cancel-order]");

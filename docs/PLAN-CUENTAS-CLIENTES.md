@@ -96,3 +96,11 @@ Reglas de siempre: nada en producción, la tienda real (6357775) no se toca, Git
 - Servidor: `POST /sesion/google` (verifica firma, emisor, destinatario, vencimiento y e-mail verificado), `GET /mis-pedidos`, `POST /mis-pedidos/vincular`; un pedido hecho con sesión queda en la cuenta; los pedidos guardados en el dispositivo se suman al entrar (solo con link firmado válido, nunca los de otra cuenta). Pruebas: 22/22.
 - Sitio: botón "Ingresar", "Mi cuenta" con "Mis pedidos", cerrar sesión (uno o todos los dispositivos) e invitación a guardar los pedidos en la pantalla del pedido.
 - **Probado en el DEV en línea por Gastón (26/10): entró con Google ("Hola Gastón"); quedó 1 cuenta, 1 sesión y 1 pedido del navegador sumado a la cuenta.**
+
+## Resultado de la etapa 3 (26/10/2026)
+
+- Al entrar con Google: busca la ficha del cliente en Tiendanube por e-mail o la crea (sin mail de invitación, nunca contraseña) y suma los pedidos anteriores con el mismo e-mail exacto (`/orders?q=…&status=any`), sin tomar los de otra cuenta. Si Tiendanube falla, se entra igual y se reintenta en el próximo ingreso.
+- Pedido con sesión: sale con el e-mail de la cuenta (ficha ya creada) → Tiendanube lo enlaza al cliente; queda en "Mis pedidos". Aviso "Sumamos N pedidos" al entrar.
+- Claves nuevas de Tiendanube (con permiso de clientes) cargadas en el sitio y el ERP en línea (la vieja dejó de funcionar en el ERP: el panel decía "sin tienda").
+- Pruebas: 25/25. **Probado en línea (26/10): la cuenta de Gastón quedó enlazada a su ficha de la tienda demo (id 356926168).** Ojo: el enlace corre al entrar con Google, no con una sesión ya abierta.
+- Pendiente para la etapa 4: sumar pedidos por teléfono solo con teléfono verificado por código.

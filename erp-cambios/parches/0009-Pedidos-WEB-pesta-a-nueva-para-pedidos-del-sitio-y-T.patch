@@ -1,0 +1,403 @@
+From ffeedde7de0bdce316a619bc81a0a3cbb4b09077 Mon Sep 17 00:00:00 2001
+From: Gaston <gaston@Gastons-MacBook-Air.local>
+Date: Mon, 26 Oct 2026 10:58:48 -0300
+Subject: [PATCH 9/9] =?UTF-8?q?Pedidos=20WEB:=20pesta=C3=B1a=20nueva=20par?=
+ =?UTF-8?q?a=20pedidos=20del=20sitio=20y=20Tiendanube=20(revisar=20stock,?=
+ =?UTF-8?q?=20confirmar,=20WhatsApp=20armado,=20editar,=20cotizaci=C3=B3n,?=
+ =?UTF-8?q?=20cancelar,=20ver=20en=20Tiendanube);=20direcci=C3=B3n=20del?=
+ =?UTF-8?q?=20panel=20informada=20por=20la=20tienda?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ app/WebOrdersBoard.tsx      | 167 ++++++++++++++++++++++++++++++++++++
+ app/api/tiendanube/route.ts |   3 +-
+ app/page.tsx                |  45 +++++++++-
+ app/web-orders.css          |  61 +++++++++++++
+ worker/index.ts             |   3 +-
+ 5 files changed, 273 insertions(+), 6 deletions(-)
+ create mode 100644 app/WebOrdersBoard.tsx
+ create mode 100644 app/web-orders.css
+
+diff --git a/app/WebOrdersBoard.tsx b/app/WebOrdersBoard.tsx
+new file mode 100644
+index 0000000..c78cb29
+--- /dev/null
++++ b/app/WebOrdersBoard.tsx
+@@ -0,0 +1,167 @@
++import { useEffect, useMemo, useState } from "react";
++import { AlertTriangle, ChevronDown, CircleCheck, ExternalLink, Pencil, Phone, Printer, RefreshCw, X } from "lucide-react";
++import "./web-orders.css";
++
++// Pedidos que entran desde el sitio / Tiendanube, con los estados en palabras del local.
++// No reemplaza a "Pedidos": usa las mismas acciones del ERP (confirmar, editar, cotización, cancelar).
++
++export type WebOrderState = "revisar" | "esperando" | "confirmado" | "preparando" | "listo" | "en_camino" | "entregado" | "cancelado";
++
++export type WebOrderRow = {
++  id: string;
++  visibleId: string;
++  platformId?: string;
++  customer: string;
++  customerPhone?: string;
++  mode: string;
++  deliveryDetail?: string;
++  deliveryCity?: string;
++  items: { sku: string; qty: number }[];
++  date: string;
++  paymentMethod?: string;
++  paymentStatus?: string;
++  totalAmount?: number;
++  state: WebOrderState;
++  customerAskedToCancel: boolean;
++  returnToStore: boolean;
++};
++
++type StockInfo = { available: number; hasCount: boolean };
++
++const STATE_LABEL: Record<WebOrderState, string> = {
++  revisar: "Revisar stock", esperando: "Esperando al cliente", confirmado: "Confirmado", preparando: "En preparación",
++  listo: "Listo", en_camino: "En camino", entregado: "Entregado", cancelado: "Cancelado",
++};
++const FILTERS = [
++  { key: "revisar", label: "Revisar stock", states: ["revisar"] },
++  { key: "esperando", label: "Esperando al cliente", states: ["esperando"] },
++  { key: "curso", label: "En curso", states: ["confirmado", "preparando", "listo", "en_camino"] },
++  { key: "entregados", label: "Entregados", states: ["entregado"] },
++  { key: "cancelados", label: "Cancelados", states: ["cancelado"] },
++] as const;
++type FilterKey = (typeof FILTERS)[number]["key"];
++
++const money = (value: number) => `$ ${Math.round(value).toLocaleString("es-AR")}`;
++
++function ago(date: string, now: number) {
++  const time = new Date(date).getTime();
++  if (Number.isNaN(time)) return "";
++  const minutes = Math.max(0, Math.round((now - time) / 60000));
++  if (minutes < 60) return `hace ${minutes} min`;
++  const hours = Math.round(minutes / 60);
++  if (hours < 48) return `hace ${hours} h`;
++  return `hace ${Math.round(hours / 24)} días`;
++}
++
++// La nota del cliente viene dentro del detalle de entrega ("… · Nota del cliente: …").
++function splitDetail(detail = "") {
++  const [address, note] = detail.split(/\s*·?\s*Nota del cliente:\s*/i);
++  return { address: (address || "").trim(), note: (note || "").trim() };
++}
++
++function whatsappLink(order: WebOrderRow, missing: string[]) {
++  const digits = (order.customerPhone || "").replace(/\D/g, "");
++  if (digits.length < 10) return "";
++  const phone = digits.startsWith("54") ? digits : `54${digits}`;
++  const name = order.customer.split(/\s+/)[0] || "";
++  const total = order.totalAmount ? `\nTotal en efectivo: ${money(order.totalAmount)} · con transferencia: ${money(order.totalAmount * 1.05)}.` : "";
++  const text = missing.length
++    ? `Hola ${name}! Recibimos tu pedido web #${order.visibleId}. Revisamos el stock y nos faltan:\n${missing.map((m) => `• ${m}`).join("\n")}\n¿Te lo reemplazamos por otro producto o lo quitamos?`
++    : `Hola ${name}! Recibimos tu pedido web #${order.visibleId} y tenemos todo en stock.${total}\n¿Lo confirmamos?`;
++  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
++}
++
++export function WebOrdersBoard({ orders, productName, stockFor, storeAdminUrl, busyId, canEdit, canCancel, onConfirm, onEdit, onPrint, onCancel, onRefresh, refreshing }: {
++  orders: WebOrderRow[];
++  productName: (sku: string) => string;
++  stockFor: (sku: string) => StockInfo;
++  storeAdminUrl: string;
++  busyId?: string;
++  canEdit: boolean;
++  canCancel: boolean;
++  onConfirm: (id: string) => void;
++  onEdit: (id: string) => void;
++  onPrint: (id: string) => void;
++  onCancel: (id: string) => void;
++  onRefresh: () => void;
++  refreshing: boolean;
++}) {
++  const [filter, setFilter] = useState<FilterKey>("revisar");
++  const [open, setOpen] = useState<string>("");
++  const [query, setQuery] = useState("");
++  // "hace X min" se actualiza cada minuto.
++  const [now, setNow] = useState(() => Date.now());
++  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60000); return () => window.clearInterval(timer); }, []);
++  const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.key, orders.filter((o) => (f.states as readonly string[]).includes(o.state)).length])), [orders]);
++  const visible = useMemo(() => {
++    const states = FILTERS.find((f) => f.key === filter)!.states as readonly string[];
++    const q = query.trim().toLowerCase();
++    return orders
++      .filter((o) => states.includes(o.state))
++      .filter((o) => !q || o.visibleId.toLowerCase().includes(q) || o.customer.toLowerCase().includes(q) || (o.customerPhone || "").includes(q))
++      .sort((a, b) => (filter === "revisar" ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)));
++  }, [orders, filter, query]);
++
++  return <section className="webOrders">
++    <header className="webOrdersHead">
++      <div><h1>Pedidos WEB</h1><p>Pedidos del sitio y de Tiendanube. Revisá el stock, confirmá con el cliente y pasalos al depósito.</p></div>
++      <button type="button" className="webOrdersRefresh" onClick={onRefresh} disabled={refreshing}><RefreshCw size={17} className={refreshing ? "rotatingIcon" : ""} aria-hidden="true" />Traer pedidos web</button>
++    </header>
++    <div className="webOrdersFilters" role="tablist" aria-label="Estado de los pedidos web">
++      {FILTERS.map((f) => <button key={f.key} type="button" role="tab" aria-selected={filter === f.key} className={filter === f.key ? "active" : ""} onClick={() => setFilter(f.key)}>{f.label}<b>{counts[f.key]}</b></button>)}
++      <input type="search" placeholder="Buscar número, cliente o teléfono" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Buscar pedido web" />
++    </div>
++    {!visible.length && <div className="webOrdersEmpty">{filter === "revisar" ? "No hay pedidos web para revisar." : "No hay pedidos en este estado."}</div>}
++    <div className="webOrdersList">
++      {visible.map((o) => {
++        const lines = o.items.map((item) => { const stock = stockFor(item.sku); return { ...item, name: productName(item.sku), stock, short: stock.hasCount ? Math.max(0, item.qty - Math.max(0, stock.available)) : 0 }; });
++        const missing = lines.filter((l) => l.short > 0).map((l) => `${l.short} × ${l.name}`);
++        const uncounted = lines.filter((l) => !l.stock.hasCount).length;
++        const { address, note } = splitDetail(o.deliveryDetail);
++        const commercial = o.state === "revisar" || o.state === "esperando";
++        const busy = busyId === o.id;
++        const wa = whatsappLink(o, missing);
++        const units = o.items.reduce((total, item) => total + item.qty, 0);
++        return <article key={o.id} className={`webOrderCard state-${o.state}`}>
++          <div className="webOrderTop">
++            <span className="webOrderId">#{o.visibleId} · Web</span>
++            <span className={`webOrderState state-${o.state}`}>{STATE_LABEL[o.state]}</span>
++            {o.customerAskedToCancel && <span className="webOrderFlag">El cliente pidió cancelar · revisar</span>}
++            {o.returnToStore && <span className="webOrderFlag">Cancelado · no entregar: volver al local</span>}
++            <time dateTime={o.date}>{ago(o.date, now)}</time>
++          </div>
++          <div className="webOrderMain">
++            <div className="webOrderCustomer">
++              <b>{o.customer || "Cliente web"}</b>
++              {o.customerPhone && <a href={`tel:${o.customerPhone}`}><Phone size={14} aria-hidden="true" />{o.customerPhone}</a>}
++            </div>
++            <div className="webOrderFacts">
++              <span><small>ENTREGA</small>{o.mode}{address && !/retiro/i.test(o.mode) ? ` · ${address}` : ""}{o.deliveryCity ? ` · ${o.deliveryCity}` : ""}</span>
++              <span><small>PAGO</small>{o.paymentMethod || "Sin indicar"}{o.paymentStatus === "paid" ? " · Cobrado" : ""}</span>
++              <span><small>TOTAL</small><b>{o.totalAmount ? money(o.totalAmount) : "Sin cotizar"}</b></span>
++            </div>
++            {note && <p className="webOrderNote"><small>NOTA DEL CLIENTE</small>{note}</p>}
++          </div>
++          <button type="button" className="webOrderToggle" aria-expanded={open === o.id} onClick={() => setOpen(open === o.id ? "" : o.id)}>
++            <ChevronDown size={16} aria-hidden="true" />{units} unidad{units === 1 ? "" : "es"} · {o.items.length} producto{o.items.length === 1 ? "" : "s"}
++            {missing.length > 0 && <span className="webOrderShort"><AlertTriangle size={14} aria-hidden="true" />{missing.length} con faltante</span>}
++            {!missing.length && uncounted > 0 && <span className="webOrderUncounted">{uncounted} sin conteo de stock</span>}
++            {!missing.length && !uncounted && commercial && <span className="webOrderOk"><CircleCheck size={14} aria-hidden="true" />Stock OK</span>}
++          </button>
++          {open === o.id && <table className="webOrderLines"><thead><tr><th>Cant.</th><th>Producto</th><th>Stock en el ERP</th></tr></thead><tbody>
++            {lines.map((l) => <tr key={l.sku} className={l.short ? "short" : ""}><td>{l.qty}</td><td>{l.name}<small>{l.sku}</small></td>
++              <td>{!l.stock.hasCount ? <span className="uncounted">Sin conteo</span> : l.short ? <span className="short">Faltan {l.short} (hay {Math.max(0, l.stock.available)})</span> : <span className="ok">Hay {l.stock.available}</span>}</td></tr>)}
++          </tbody></table>}
++          <div className="webOrderActions">
++            {commercial && <button type="button" className="primary" disabled={busy} onClick={() => onConfirm(o.id)} title={missing.length ? "Hay faltantes: confirmá solo si el cliente aceptó" : uncounted ? "Hay productos sin conteo de stock: verificalos antes de confirmar" : "Stock OK: confirmar y pasar al depósito"}>{busy ? <RefreshCw size={16} className="rotatingIcon" aria-hidden="true" /> : <CircleCheck size={16} aria-hidden="true" />}{missing.length ? "Confirmar igual" : uncounted ? "Confirmar" : "Stock OK → Confirmar"}</button>}
++            {wa ? <a className="whatsapp" href={wa} target="_blank" rel="noopener noreferrer" title="Abre WhatsApp con el mensaje armado (lo enviás vos)">WhatsApp al cliente</a> : <button type="button" disabled title="Sin teléfono válido">WhatsApp al cliente</button>}
++            {commercial && canEdit && o.paymentStatus !== "paid" && <button type="button" disabled={busy} onClick={() => onEdit(o.id)}><Pencil size={16} aria-hidden="true" />Editar productos</button>}
++            <button type="button" disabled={busy} onClick={() => onPrint(o.id)}><Printer size={16} aria-hidden="true" />Imprimir cotización</button>
++            {o.platformId && storeAdminUrl && <a href={`${storeAdminUrl}/admin/orders/${encodeURIComponent(o.platformId)}`} target="_blank" rel="noopener noreferrer"><ExternalLink size={16} aria-hidden="true" />Ver en Tiendanube</a>}
++            {canCancel && !["cancelado", "entregado", "en_camino"].includes(o.state) && <button type="button" className="danger" disabled={busy} onClick={() => onCancel(o.id)}><X size={16} aria-hidden="true" />Cancelar</button>}
++          </div>
++        </article>;
++      })}
++    </div>
++  </section>;
++}
+diff --git a/app/api/tiendanube/route.ts b/app/api/tiendanube/route.ts
+index 9ccc4aa..66ba1dd 100644
+--- a/app/api/tiendanube/route.ts
++++ b/app/api/tiendanube/route.ts
+@@ -253,7 +253,8 @@ export async function GET(request: Request) {
+     const response = await api("/store");
+     if (!response.ok) return Response.json({ configured: true, connected: false, readOnly: true, message: `Tiendanube respondió ${response.status}` });
+     const store = await response.json() as JsonRecord;
+-    return Response.json({ configured: true, connected: true, readOnly: true, storeName: localized(store.name) || "Panalera Mayorista Rosario" });
++    const domain = value(store.original_domain);
++    return Response.json({ configured: true, connected: true, readOnly: true, storeName: localized(store.name) || "Panalera Mayorista Rosario", storeAdminUrl: /^[a-z0-9-]+\.mitiendanube\.com$/i.test(domain) ? `https://${domain}` : "" });
+   } catch (error) {
+     return Response.json({ configured: true, connected: false, readOnly: true, message: error instanceof Error ? error.message : "No se pudo conectar" });
+   }
+diff --git a/app/page.tsx b/app/page.tsx
+index d037ae2..11c9d73 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -87,6 +87,7 @@ import { CourierAddressQuote } from "./CourierAddressQuote";
+ import { argentinaBusinessDate, cashSessionIsStale } from "./cashRegisterRules";
+ import { findSpreadsheetHeader, readSpreadsheetRows, spreadsheetNumber } from "./spreadsheetImport";
+ import { stockAvailability, type StockBalance } from "./stockAvailability";
++import { WebOrdersBoard, type WebOrderRow, type WebOrderState } from "./WebOrdersBoard";
+ import { planCounts, replenishmentAlerts, validateReception } from "./warehousePlanning";
+ import { CountPlan, ReplenishmentPanel } from "./OperationalPlanning";
+ 
+@@ -98,12 +99,12 @@ const PriceLabelWorkbench = lazy(() => import("./PriceLabelWorkbench"));
+ const InventoryCountDialog = lazy(() => import("./InventoryCountDialog"));
+ const ReceiptEditor = lazy(() => import("./ReceiptEditor"));
+ 
+-type Screen = "home" | "receive" | "move" | "orders" | "pick" | "pack" | "dispatch" | "history" | "task-history" | "system-health" | "stock" | "inventory" | "map" | "analytics" | "users" | "code-reviews" | "stock-alerts" | "products" | "purchases" | "sales" | "customers" | "current-accounts" | "cash-register" | "expenses" | "sales-report" | "commissions" | "payment-methods" | "price-list" | "print-labels" | "combos" | "guide";
++type Screen = "home" | "receive" | "move" | "orders" | "web-orders" | "pick" | "pack" | "dispatch" | "history" | "task-history" | "system-health" | "stock" | "inventory" | "map" | "analytics" | "users" | "code-reviews" | "stock-alerts" | "products" | "purchases" | "sales" | "customers" | "current-accounts" | "cash-register" | "expenses" | "sales-report" | "commissions" | "payment-methods" | "price-list" | "print-labels" | "combos" | "guide";
+ type User = { name: string; role: string; initials: string; pin: string; permissions: string[]; commissionPercent?: number; active?: boolean };
+ type ProductPart = { part: number; component: string; componentSku?: string; widthMm: number; heightMm: number; lengthMm: number; weightKg: number };
+ type Product = { sku: string; baseCode: string; barcode?: string; name: string; description: string; line: string; color: string; brand?: string; category?: string; propertyName?: string; propertyValue?: string; costPrice?: number; salePrice?: number; wholesalePrice?: number; parts: ProductPart[] };
+ type BoxLabel = { id: string; barcode: string; sku: string; line: string; color: string; part: number; total: number; component: string; date: string; location?: string; status?: string };
+-type Order = { remittanceIssued?:boolean; deliveryCity?:string; deliveryProvince?:string; historySaleOnly?: boolean; historySaleOperator?: string; reservationShortage?: number; id: string; customer: string; customerPhone?: string; mode: string; deliveryDetail?: string; items: { sku: string; qty: number }[]; status: string; date: string; source: string; commercialStatus?: string; paymentStatus?: string; deliveryStatus?: string; paymentMethod?: string; totalAmount?: number; workflowBox?: string; quoteSentAt?: string; quoteLastSentAt?: string; confirmedAt?: string; paidAt?: string; workflowVersion?: number };
++type Order = { platformId?: string; remittanceIssued?:boolean; deliveryCity?:string; deliveryProvince?:string; historySaleOnly?: boolean; historySaleOperator?: string; reservationShortage?: number; id: string; customer: string; customerPhone?: string; mode: string; deliveryDetail?: string; items: { sku: string; qty: number }[]; status: string; date: string; source: string; commercialStatus?: string; paymentStatus?: string; deliveryStatus?: string; paymentMethod?: string; totalAmount?: number; workflowBox?: string; quoteSentAt?: string; quoteLastSentAt?: string; confirmedAt?: string; paidAt?: string; workflowVersion?: number };
+ type DeliveryRecord = { orderId: string; receiver: string; signature: string; deliveredAt: string; operator: string; mode: string; box: string; photoName?: string; photoData?: string; overridePin?: string; transportCompany?: string; transportOrderNumber?: string };
+ type OrderProgressRecord = { orderId: string; picked: string[]; pickedBoxCodes: string[]; status: string; operator: string; updatedAt: string };
+ type OrderSessionRecord = { orderId: string; operator: string; startedAt: string; completedAt: string; durationSeconds: number; status: string; updatedAt: string };
+@@ -1639,7 +1640,7 @@ function WarehouseApp({ onSessionCleared, allowSessionRestore }: { onSessionClea
+   const [reservations, setReservations] = useState<ReservationRecord[]>([]);
+   const [warehouseEvents, setWarehouseEvents] = useState<WarehouseEventRecord[]>([]);
+   const [ecommerceSync, setEcommerceSync] = useState<EcommerceSyncRecord[]>([]);
+-  const [tiendanubeStatus, setTiendanubeStatus] = useState<{ configured: boolean; connected: boolean; storeName?: string; message?: string }>({ configured: false, connected: false });
++  const [tiendanubeStatus, setTiendanubeStatus] = useState<{ configured: boolean; connected: boolean; storeName?: string; storeAdminUrl?: string; message?: string }>({ configured: false, connected: false });
+   // Avisos de estado a Tiendanube (enviados a tiendas de prueba habilitadas o simulados).
+   const [statusPush, setStatusPush] = useState<{ counts: Record<string, number>; latest: Array<{ order_id: string; target: string; status: string; detail: string; updated_at: string; request: { method: string; path: string; customer: string } | null }> } | null>(null);
+   const [statusPushError, setStatusPushError] = useState("");
+@@ -2083,6 +2084,8 @@ if (has("productBarcodeAliases")) setProductBarcodeAliases(current => catalogPar
+     // avance sin interrumpir el lector.
+     if (activeScreen === "history" || activeScreen === "price-list") return [];
+     if (activeScreen === "orders") return ["orders"];
++    // Pedidos WEB: pedidos + inventario (stock de cada producto) + catálogo (nombres).
++    if (activeScreen === "web-orders") return ["orders", "inventory", "catalog"];
+     if (activeScreen === "pick") return [];
+     if (activeScreen === "dispatch") return nativeApp ? ["orders", "business"] : ["orders", "inventory", "business"];
+     if (activeScreen === "pack") return ["orders", "inventory"];
+@@ -2570,7 +2573,7 @@ if (has("productBarcodeAliases")) setProductBarcodeAliases(current => catalogPar
+     if (!user) return;
+     let cancelled = false;
+     fetch("/api/tiendanube", { cache: "no-store" })
+-      .then(async (response) => ({ ok: response.ok, data: await response.json() as { configured: boolean; connected: boolean; storeName?: string; message?: string } }))
++      .then(async (response) => ({ ok: response.ok, data: await response.json() as { configured: boolean; connected: boolean; storeName?: string; storeAdminUrl?: string; message?: string } }))
+       .then(({ ok, data }) => { if (!cancelled) setTiendanubeStatus(ok ? data : { configured: false, connected: false, message: "No se pudo comprobar la conexión" }); })
+       .catch(() => { if (!cancelled) setTiendanubeStatus({ configured: false, connected: false, message: "No se pudo comprobar la conexión" }); });
+     return () => { cancelled = true; };
+@@ -3354,6 +3357,18 @@ if (has("productBarcodeAliases")) setProductBarcodeAliases(current => catalogPar
+       || order.items.some((item) => item.sku.toLowerCase().includes(query))
+     ));
+   }, [orderQuery, readyToDispatch, deliveredOrderIds, orders, inRouteOrderIds]);
++  const webOrderRows = useMemo<WebOrderRow[]>(() => orders.filter((order) => isWebOrder(order.source)).map((order) => {
++    const commercial = order.commercialStatus || "confirmed";
++    const session = orderSessionsById[order.id]?.status;
++    const state: WebOrderState = ["cancelled", "rejected", "expired"].includes(commercial) || order.deliveryStatus === "cancelled" ? "cancelado"
++      : ["draft", "quote_sent"].includes(commercial) ? (order.quoteLastSentAt || order.quoteSentAt ? "esperando" : "revisar")
++      : deliveredOrderIds.has(order.id) ? "entregado"
++      : inRouteOrderIds.has(order.id) ? "en_camino"
++      : ["ready", "ready_pickup", "ready_dispatch"].includes(order.deliveryStatus || "") || readyToDispatch.includes(order.id) ? "listo"
++      : orderProgressById[order.id]?.status === "in_progress" || session === "in_progress" || session === "completed" ? "preparando"
++      : "confirmado";
++    return { id: order.id, visibleId: visibleOrderId(order), platformId: order.platformId, customer: order.customer, customerPhone: order.customerPhone, mode: order.mode, deliveryDetail: order.deliveryDetail, deliveryCity: order.deliveryCity, items: order.items, date: order.date, paymentMethod: order.paymentMethod, paymentStatus: order.paymentStatus, totalAmount: order.totalAmount, state, customerAskedToCancel: cancelRequestIds.includes(order.id), returnToStore: webCancelledInRouteIds.has(order.id) };
++  }), [orders, orderSessionsById, orderProgressById, deliveredOrderIds, inRouteOrderIds, readyToDispatch, cancelRequestIds, webCancelledInRouteIds]);
+   const commercialFilteredOrders = useMemo(() => {
+     const query = orderQuery.trim().toLowerCase();
+     return orders.filter((order) => ["draft", "quote_sent"].includes(order.commercialStatus || "confirmed") && (!hideSentQuotations || order.commercialStatus !== "quote_sent" || !(order.quoteLastSentAt || order.quoteSentAt)) && (!hideOldQuotations || !(Date.now() - operationalDate(order.quoteLastSentAt || order.quoteSentAt || order.date).getTime() > 5 * 86400000)) && !incidentOrderIds.has(order.id) && !pendingSubstitutionsByOrder[order.id]?.length && !stockSkusByOrder[order.id]?.length && !localIncidentCases.some(item=>item.orderId===order.id) && (
+@@ -8164,6 +8179,7 @@ if (has("productBarcodeAliases")) setProductBarcodeAliases(current => catalogPar
+             {hasPermission("receive") && <button title="Carga de pedidos" className={`navItem ${screen === "receive" ? "active" : ""}`} onClick={() => go("receive")}><i><ArrowDownToLine size={18} /></i>Carga de pedidos</button>}
+             {hasPermission("move") && <button title="Ubicar" className={`navItem ${screen === "move" ? "active" : ""}`} onClick={() => go("move")}><i><MoveHorizontal size={18} /></i>Ubicar</button>}
+             {hasPermission("orders") && <button title="Pedidos" className={`navItem ${screen === "orders" || screen === "pick" ? "active" : ""}`} onClick={() => go("orders")}><i><PackageCheck size={18} /></i>Pedidos <em>{filteredOrders.length + (hasPermission("sales") ? commercialFilteredOrders.length : 0)}</em></button>}
++            {hasPermission("sales") && !nativeApp && <button title="Pedidos WEB" className={`navItem ${screen === "web-orders" ? "active" : ""}`} onClick={() => go("web-orders")}><i><Globe2 size={18} /></i>Pedidos WEB <em>{webOrderRows.filter((row) => row.state === "revisar").length}</em></button>}
+             {hasPermission("dispatch") && <button title="Retiros" className={`navItem ${screen === "pack" || screen === "dispatch" ? "active" : ""}`} onClick={() => go("dispatch")}><i><Store size={18} /></i>Retiros <em>{readyToDispatch.length}</em></button>}
+           </div>
+         </div>
+@@ -8442,6 +8458,27 @@ if (has("productBarcodeAliases")) setProductBarcodeAliases(current => catalogPar
+             </>
+           )}
+ 
++          {screen === "web-orders" && hasPermission("sales") && <WebOrdersBoard
++            orders={webOrderRows}
++            productName={(sku) => PRODUCTS[sku]?.name || sku}
++            stockFor={(sku) => { const { hasCount, available } = stockAvailability(inventoryBalances[sku]); return { hasCount, available }; }}
++            storeAdminUrl={tiendanubeStatus.connected ? tiendanubeStatus.storeAdminUrl || "" : ""}
++            busyId={workflowSavingKey ? workflowSavingKey.split(":")[0] : undefined}
++            canEdit={canAction("update-quotation")}
++            canCancel={canAction("cancel-order") || canAction("update-order-workflow")}
++            refreshing={tiendanubeSyncing}
++            onRefresh={() => void syncTiendanube()}
++            onConfirm={(id) => { const order = orders.find((item) => item.id === id); if (order) void updateOrderWorkflow(order, { commercialStatus: "confirmed" }); }}
++            onEdit={(id) => { const order = orders.find((item) => item.id === id); if (order) void editQuotation(order); }}
++            onPrint={(id) => { const order = orders.find((item) => item.id === id); if (order) void reopenQuotation(order); }}
++            onCancel={(id) => {
++              const order = orders.find((item) => item.id === id);
++              if (!order) return;
++              // Cotización: se marca como no aceptada (como en Pedidos). Ya confirmado: cancelación con PIN.
++              if (["draft", "quote_sent"].includes(order.commercialStatus || "")) { if (window.confirm(`¿Cancelar el pedido web #${visibleOrderId(order)}? Queda como no aceptado.`)) void updateOrderWorkflow(order, { commercialStatus: "rejected" }); }
++              else void requestOrderCancellation(order);
++            }}
++          />}
+           {screen === "orders" && (
+             <>
+               <PageHeader className="ordersTitle" icon={<ActionIcon tone="blue"><ClipboardList size={22} /></ActionIcon>} eyebrow="OPERACIONES" title="Pedidos" actions={<><button type="button" className="ordersWebRefresh emojiAction" disabled={tiendanubeSyncing || !tiendanubeStatus.configured} onClick={syncTiendanube} title={tiendanubeStatus.configured ? "Cargar pedidos web" : "Faltan configurar Tiendanube"} data-tooltip={tiendanubeStatus.configured ? "Cargar pedidos web" : "Faltan configurar Tiendanube"} aria-label={tiendanubeSyncing ? "Cargando pedidos web" : "Cargar pedidos web"}>{tiendanubeSyncing ? <RefreshCw className="rotatingIcon" size={20} aria-hidden="true" /> : <Globe2 size={21} aria-hidden="true" />}</button><button type="button" className="ordersManualSync" disabled={warehouseSyncing} onClick={() => void manualWarehouseSyncRef.current()} aria-label={warehouseSyncing ? "Sincronizando" : "Sincronizar"} title="Enviar lo pendiente y actualizar pedidos"><RefreshCw size={19} className={warehouseSyncing ? "rotatingIcon" : ""} aria-hidden="true" /><span>Sincronizar</span></button></>} />
+diff --git a/app/web-orders.css b/app/web-orders.css
+new file mode 100644
+index 0000000..00f6eaf
+--- /dev/null
++++ b/app/web-orders.css
+@@ -0,0 +1,61 @@
++/* Pedidos WEB (pedidos del sitio y Tiendanube). */
++.webOrders { display:grid; gap:14px; color:#142c4b; }
++.webOrdersHead { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:12px; }
++.webOrdersHead h1 { margin:0; font-size:24px; }
++.webOrdersHead p { margin:4px 0 0; color:#5d718b; font-size:14px; }
++.webOrdersRefresh { display:inline-flex; align-items:center; gap:8px; border:1px solid #b9cfee; background:#fff; color:#175bb3; border-radius:10px; padding:8px 14px; font-weight:700; cursor:pointer; }
++.webOrdersFilters { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
++.webOrdersFilters button { display:inline-flex; align-items:center; gap:8px; border:1px solid #dfe5ee; background:#fff; border-radius:999px; padding:7px 14px; font-weight:700; color:#263e5e; cursor:pointer; }
++.webOrdersFilters button b { background:#edf0f5; border-radius:999px; padding:1px 8px; font-size:12px; }
++.webOrdersFilters button.active { background:#175bb3; border-color:#175bb3; color:#fff; }
++.webOrdersFilters button.active b { background:rgba(255,255,255,.22); }
++.webOrdersFilters input { margin-left:auto; min-width:240px; border:1px solid #dfe5ee; border-radius:10px; padding:8px 12px; font:inherit; }
++.webOrdersEmpty { background:#fff; border:1px dashed #c9d4e4; border-radius:14px; padding:28px; text-align:center; color:#5d718b; }
++.webOrdersList { display:grid; gap:12px; }
++.webOrderCard { background:#fff; border:1px solid #dfe5ee; border-left:5px solid #c9d4e4; border-radius:14px; padding:14px 16px; display:grid; gap:10px; }
++.webOrderCard.state-revisar { border-left-color:#e0a100; }
++.webOrderCard.state-esperando { border-left-color:#6343ba; }
++.webOrderCard.state-confirmado, .webOrderCard.state-preparando { border-left-color:#1261c4; }
++.webOrderCard.state-listo, .webOrderCard.state-en_camino { border-left-color:#087448; }
++.webOrderCard.state-cancelado { border-left-color:#b32a22; opacity:.85; }
++.webOrderTop { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
++.webOrderId { font-weight:800; color:#175bb3; }
++.webOrderState { border-radius:999px; padding:2px 10px; font-size:12px; font-weight:800; background:#edf0f5; color:#526178; }
++.webOrderState.state-revisar { background:#fff3dd; color:#955b00; }
++.webOrderState.state-esperando { background:#f0eaff; color:#6343ba; }
++.webOrderState.state-confirmado, .webOrderState.state-preparando { background:#e4f0ff; color:#1261c4; }
++.webOrderState.state-listo, .webOrderState.state-en_camino { background:#e1f5e9; color:#087448; }
++.webOrderState.state-cancelado { background:#ffebe8; color:#b32a22; }
++.webOrderFlag { border-radius:999px; padding:2px 10px; font-size:12px; font-weight:800; background:#ffebe8; color:#b32a22; }
++.webOrderTop time { margin-left:auto; color:#5d718b; font-size:13px; }
++.webOrderMain { display:grid; grid-template-columns:minmax(180px,.8fr) minmax(300px,2fr); gap:10px 18px; align-items:start; }
++.webOrderCustomer { display:grid; gap:4px; }
++.webOrderCustomer b { font-size:17px; }
++.webOrderCustomer a { display:inline-flex; align-items:center; gap:6px; color:#175bb3; text-decoration:none; font-size:14px; }
++.webOrderFacts { display:flex; flex-wrap:wrap; gap:8px 22px; font-size:14px; }
++.webOrderFacts span { display:grid; gap:2px; }
++.webOrderFacts small, .webOrderNote small { font-size:11px; font-weight:800; color:#5d718b; letter-spacing:.04em; }
++.webOrderNote { grid-column:1 / -1; margin:0; background:#fffbea; border:1px solid #f2e2a6; border-radius:10px; padding:8px 10px; display:grid; gap:2px; font-size:14px; }
++.webOrderToggle { justify-self:start; display:inline-flex; flex-wrap:wrap; align-items:center; gap:8px; border:0; background:none; padding:0; color:#263e5e; font:inherit; font-weight:700; cursor:pointer; }
++.webOrderToggle[aria-expanded="true"] svg:first-child { transform:rotate(180deg); }
++.webOrderShort { display:inline-flex; align-items:center; gap:4px; color:#b32a22; background:#ffebe8; border-radius:999px; padding:2px 9px; font-size:12px; }
++.webOrderUncounted { color:#526178; background:#edf0f5; border-radius:999px; padding:2px 9px; font-size:12px; }
++.webOrderOk { display:inline-flex; align-items:center; gap:4px; color:#087448; background:#e1f5e9; border-radius:999px; padding:2px 9px; font-size:12px; }
++.webOrderLines { width:100%; border-collapse:collapse; font-size:14px; }
++.webOrderLines th { text-align:left; font-size:11px; color:#5d718b; padding:6px 8px; border-bottom:1px solid #dfe5ee; }
++.webOrderLines td { padding:7px 8px; border-bottom:1px solid #eef1f6; vertical-align:top; }
++.webOrderLines td small { display:block; color:#8592a6; font-size:11px; }
++.webOrderLines tr.short td { background:#fff6f5; }
++.webOrderLines .ok { color:#087448; font-weight:700; }
++.webOrderLines .short { color:#b32a22; font-weight:800; }
++.webOrderLines .uncounted { color:#526178; }
++.webOrderActions { display:flex; flex-wrap:wrap; gap:8px; }
++.webOrderActions button, .webOrderActions a { display:inline-flex; align-items:center; gap:6px; border:1px solid #dfe5ee; background:#fff; color:#263e5e; border-radius:10px; padding:8px 12px; font:inherit; font-size:14px; font-weight:700; text-decoration:none; cursor:pointer; }
++.webOrderActions .primary { background:#175bb3; border-color:#175bb3; color:#fff; }
++.webOrderActions .whatsapp { border-color:#1f9d55; color:#147a41; }
++.webOrderActions .danger { color:#b32a22; border-color:#f2c4bf; }
++.webOrderActions button:disabled { opacity:.5; cursor:not-allowed; }
++@media (max-width:820px) {
++  .webOrderMain { grid-template-columns:1fr; }
++  .webOrdersFilters input { margin-left:0; min-width:0; width:100%; }
++}
+diff --git a/worker/index.ts b/worker/index.ts
+index 2213eb6..5449d20 100644
+--- a/worker/index.ts
++++ b/worker/index.ts
+@@ -49,7 +49,8 @@ function withSecurityHeaders(request: Request, response: Response) {
+ const worker = {
+   async fetch(request: Request, env: Cloudflare.Env & AccessConfiguration, ctx: ExecutionContext): Promise<Response> {
+     if (!await authorizeAccess(request, env)) {
+-        const basic = env.WMS_ACCESS_MODE === "basic";
++        // El tipo generado de producción solo conoce "optional"; el DEV en línea usa "basic".
++        const basic = String(env.WMS_ACCESS_MODE) === "basic";
+         return withSecurityHeaders(request, new Response(basic ? "Acceso restringido: ERP de pruebas (DEV)." : "Acceso operativo no autorizado", {
+           status: basic ? 401 : 403,
+           headers: {
+-- 
+2.50.1 (Apple Git-155)
+
