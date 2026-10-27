@@ -10,7 +10,7 @@ import { COOKIE, DURACION, crearSesion, huella, leerSesion, type D1 } from '../s
 function baseDePrueba() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON;');
-  sqlite.exec(readFileSync(new URL('../migrations/0001_cuentas.sql', import.meta.url), 'utf8'));
+  for (const m of ['0001_cuentas.sql', '0002_datos_pedido.sql']) sqlite.exec(readFileSync(new URL(`../migrations/${m}`, import.meta.url), 'utf8'));
   const db: D1 = {
     prepare: (sql) => ({
       bind: (...v: any[]) => ({
@@ -44,7 +44,7 @@ test('la sesión guarda solo la huella del token y la cookie es segura', async (
   assert.equal(filas[0].vence, AHORA + DURACION);
 
   const res = await handle(conCookie(token), { ...envBase, DB: db, GOOGLE_CLIENT_ID: 'cliente-dev' }, deps());
-  assert.deepEqual(await res.json(), { cliente: { nombre: 'Ana Prueba', email: 'ana.prueba@example.com' }, cuentas: true, googleClientId: 'cliente-dev' });
+  assert.deepEqual(await res.json(), { cliente: { nombre: 'Ana Prueba', email: 'ana.prueba@example.com', datos: null }, cuentas: true, googleClientId: 'cliente-dev' });
   assert.equal(res.headers.get('Access-Control-Allow-Credentials'), 'true');
   assert.equal(res.headers.get('Access-Control-Allow-Origin'), ORIGEN);
 });
@@ -301,4 +301,20 @@ test('pedido con sesión: sale con el e-mail de la cuenta para que Tiendanube lo
   const pedido = t.llamadas.find((l) => l.metodo === 'POST' && l.url.endsWith('/orders'))!;
   assert.equal(pedido.body.customer.email, 'ana.prueba@example.com');
   assert.deepEqual(sqlite.prepare('SELECT pedido_id FROM pedidos_cliente').all().map((f: any) => f.pedido_id), [9100]);
+});
+
+test('pedido con sesión guarda nombre, WhatsApp, dirección, entrega y pago; /sesion se los devuelve solo al dueño', async () => {
+  limpiarClavesGoogle(); (await import('../src/index.ts')).limpiarLimites();
+  const { limpiarCacheCatalogo } = await import('../src/catalogo.ts'); limpiarCacheCatalogo();
+  const { db, cliente } = baseDePrueba();
+  const id = cliente();
+  const token = await crearSesion(db, id, AHORA), otro = await crearSesion(db, cliente('otro@example.com'), AHORA);
+  const env = { ...envBase, DB: db, GOOGLE_CLIENT_ID: CLIENT_ID, TURNSTILE_SECRET: 's', MINIMO_PEDIDO: '50000' };
+  const t = depsTiendanube();
+  const entrega = { tipo: 'envio', zona: 'rosario', calle: 'Balcarce', numero: '123', piso: '2B', ciudad: 'Rosario', provincia: 'Santa Fe', cp: '2000' };
+  const cuerpo = JSON.stringify({ turnstile: 'ok', items: [{ variant_id: 101, quantity: 2 }], cliente: { nombre: 'Ana Comercio', telefono: '0341 15 555-0101' }, entrega, pago: 'transferencia' });
+  assert.equal((await handle(new Request('http://api/pedido', { method: 'POST', headers: { Origin: ORIGEN, 'Content-Type': 'application/json', Cookie: `${COOKIE}=${token}` }, body: cuerpo }), env, t.deps)).status, 201);
+  const s: any = await (await handle(conCookie(token), env, t.deps)).json();
+  assert.deepEqual(s.cliente.datos, { nombre: 'Ana Comercio', telefono: '3415550101', entrega, pago: 'transferencia' });
+  assert.equal(((await (await handle(conCookie(otro), env, t.deps)).json()) as any).cliente.datos, null, 'otro cliente no ve esos datos');
 });

@@ -40,14 +40,14 @@ export async function crearSesion(db: D1, clienteId: number, ahora: number, disp
   return token;
 }
 
-export type Cliente = { id: number; email: string; nombre: string; telefono: string | null; telefono_verificado: number; tiendanube_id: number | null };
+export type Cliente = { id: number; email: string; nombre: string; telefono: string | null; telefono_verificado: number; tiendanube_id: number | null; datos_pedido: string };
 
 // Devuelve el cliente de la sesión (o null) y, si corresponde, la cookie renovada.
 export async function leerSesion(db: D1, request: Request, ahora: number): Promise<{ cliente: Cliente | null; renovada?: string }> {
   const token = leerCookie(request);
   if (!token) return { cliente: null };
   const h = await huella(token);
-  const fila = await db.prepare(`SELECT s.vence, c.id, c.email, c.nombre, c.telefono, c.telefono_verificado, c.tiendanube_id
+  const fila = await db.prepare(`SELECT s.vence, c.id, c.email, c.nombre, c.telefono, c.telefono_verificado, c.tiendanube_id, c.datos_pedido
     FROM sesiones s JOIN clientes c ON c.id = s.cliente_id WHERE s.huella = ?`).bind(h).first<Cliente & { vence: number }>();
   if (!fila || fila.vence <= ahora) return { cliente: null };
   const { vence, ...cliente } = fila;

@@ -2,6 +2,7 @@
 // Google devuelve un token firmado (JWT); acá se verifica la firma con las claves públicas de Google,
 // el emisor, el destinatario (nuestro ID de cliente) y el vencimiento. Solo e-mails verificados.
 import type { D1 } from './sesion.ts';
+import type { PedidoValido } from './pedido.ts';
 
 const EMISORES = ['accounts.google.com', 'https://accounts.google.com'];
 const CLAVES_GOOGLE = 'https://www.googleapis.com/oauth2/v3/certs';
@@ -113,4 +114,14 @@ export async function sumarPedidosAnteriores(db: D1, api: Api, clienteId: number
     n += await vincularPedido(db, clienteId, Number(o.id), Number(o.number) || 0, ahora);
   }
   return n;
+}
+
+// ---------- Datos del último pedido (para completar el checkout) ----------
+export async function guardarDatosPedido(db: D1, clienteId: number, p: PedidoValido, ahora: number) {
+  const datos = { nombre: p.cliente.nombre, telefono: p.cliente.telefono.replace(/^54/, ''), entrega: p.entrega, pago: p.pago };
+  await db.prepare('UPDATE clientes SET datos_pedido = ?, telefono = ?, actualizado = ? WHERE id = ?').bind(JSON.stringify(datos), p.cliente.telefono, ahora, clienteId).run();
+}
+
+export function leerDatosPedido(texto: string) {
+  try { const d = JSON.parse(texto || ''); return d && typeof d === 'object' ? d : null; } catch { return null; }
 }

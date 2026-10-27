@@ -10,7 +10,7 @@ import { firmarPedido, verificarPedido } from './link.ts';
 import { armarPedidoTiendanube, validarPedido } from './pedido.ts';
 import { leerBuzon } from './buzon.ts';
 import { cerrarSesion, cerrarTodas, cookieBorrada, cookieSesion, crearSesion, leerSesion, type D1 } from './sesion.ts';
-import { clienteDesdeGoogle, enlazarClienteTiendanube, pedidosDelCliente, sumarPedidosAnteriores, verificarTokenGoogle, vincularPedido } from './cuentas.ts';
+import { clienteDesdeGoogle, enlazarClienteTiendanube, guardarDatosPedido, leerDatosPedido, pedidosDelCliente, sumarPedidosAnteriores, verificarTokenGoogle, vincularPedido } from './cuentas.ts';
 import { TiendanubeError, tiendanube, type Env } from './tiendanube.ts';
 
 type Deps = { fetch: typeof fetch; ahora: () => number };
@@ -161,7 +161,8 @@ export async function handle(request: Request, env: Env, deps: Deps = depsPorDef
     if (request.method === 'GET' && url.pathname === '/sesion') {
       if (!env.DB) return json({ cliente: null, cuentas: false }, 200, cors);
       const { cliente, renovada } = await leerSesion(env.DB, request, deps.ahora());
-      return json({ cliente: cliente ? { nombre: cliente.nombre, email: cliente.email } : null, cuentas: !!env.GOOGLE_CLIENT_ID, googleClientId: env.GOOGLE_CLIENT_ID || '' }, 200, cors, renovada ? { 'Set-Cookie': renovada } : {});
+      // Los datos del último pedido solo viajan al propio cliente (cookie de sesión, sin caché).
+      return json({ cliente: cliente ? { nombre: cliente.nombre, email: cliente.email, datos: leerDatosPedido(cliente.datos_pedido) } : null, cuentas: !!env.GOOGLE_CLIENT_ID, googleClientId: env.GOOGLE_CLIENT_ID || '' }, 200, cors, renovada ? { 'Set-Cookie': renovada } : {});
     }
     if (request.method === 'POST' && url.pathname === '/sesion/google') {
       if (!origenOk) return json({ errores: ['Origen no permitido.'] }, 403, null);
@@ -253,7 +254,10 @@ export async function handle(request: Request, env: Env, deps: Deps = depsPorDef
       }
       const creado = await api('/orders', { method: 'POST', body: JSON.stringify(armado.body) });
       const token = await firmarPedido(creado.id, env.LINK_SECRET || '');
-      if (conSesion && env.DB) await vincularPedido(env.DB, conSesion.id, Number(creado.id), Number(creado.number) || 0, ahora).catch(() => 0);
+      if (conSesion && env.DB) {
+        await vincularPedido(env.DB, conSesion.id, Number(creado.id), Number(creado.number) || 0, ahora).catch(() => 0);
+        await guardarDatosPedido(env.DB, conSesion.id, v.pedido, ahora).catch(() => {});
+      }
       return json({ numero: creado.number, total: armado.total, seguimiento: `/pedido/${creado.id}?t=${token}` }, 201, cors);
     }
 

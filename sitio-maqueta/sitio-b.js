@@ -104,7 +104,21 @@
     if ($("#ck-calle")) Object.assign(ck, { calle: g("calle"), numero: g("numero"), piso: g("piso"), ciudad: g("ciudad"), provincia: g("provincia"), cp: g("cp") });
   }
 
+  // Con sesión: nombre y e-mail de la cuenta; WhatsApp, dirección, entrega y pago del último pedido.
+  function precargarCheckout() {
+    if (ck.precargado || !cuenta.cliente) return;
+    const d = cuenta.cliente.datos || {};
+    ck.nombre = ck.nombre || d.nombre || cuenta.cliente.nombre || "";
+    ck.telefono = ck.telefono || d.telefono || "";
+    ck.email = cuenta.cliente.email;
+    if (d.entrega?.tipo === "envio") Object.assign(ck, { entrega: d.entrega.zona === "expreso" ? "expreso" : "rosario", calle: d.entrega.calle || "", numero: d.entrega.numero || "", piso: d.entrega.piso || "", ciudad: d.entrega.ciudad || "", provincia: d.entrega.provincia || "Santa Fe", cp: d.entrega.cp || "" });
+    else if (d.entrega?.tipo === "retiro") ck.entrega = "retiro";
+    if (d.pago === "transferencia" || d.pago === "efectivo") ck.pago = d.pago;
+    ck.precargado = d.nombre ? "pedido" : "cuenta";
+  }
+
   renderCheckout = function () {
+    precargarCheckout();
     const items = cartItems(), tot = cartTotal(), envio = ck.entrega !== "retiro";
     const opt = (name, val, cur, title, small) =>
       `<label class="opt"><input type="radio" name="${name}" value="${val}" ${cur === val ? "checked" : ""}><span><b>${title}</b><small>${small}</small></span></label>`;
@@ -112,12 +126,13 @@
       <button class="back" data-screen="home">← Seguir comprando</button>
       <h2 style="margin:0">Enviar pedido</h2>
       <p class="fine" style="text-align:left;margin-top:4px">Todavía no pagás: primero confirmamos el stock y el total por WhatsApp.</p>
+      ${ck.precargado === "pedido" ? '<p class="fine" style="text-align:left;margin:4px 0 0;color:#087448;font-weight:600">Completamos con los datos de tu último pedido. Revisalos y cambiá lo que necesites.</p>' : ""}
       <div class="co-grid">
         <form class="co-steps" id="ck-form" novalidate>
           <fieldset class="co-box"><legend>Tus datos</legend><div class="fields">
             ${campo("nombre", "Nombre y apellido", ck.nombre, "full", 'autocomplete="name" required')}
             ${campo("telefono", "WhatsApp <small>con código de área</small>", ck.telefono, "", 'inputmode="tel" autocomplete="tel" placeholder="341 555-1234" required')}
-            ${campo("email", "E-mail <small>(opcional)</small>", ck.email, "", 'type="email" autocomplete="email"')}
+            ${cuenta.cliente ? campo("email", "E-mail <small>(el de tu cuenta)</small>", ck.email, "", 'type="email" readonly') : campo("email", "E-mail <small>(opcional)</small>", ck.email, "", 'type="email" autocomplete="email"')}
           </div></fieldset>
           <fieldset class="co-box"><legend>Entrega</legend><div class="opts">
             ${ENTREGAS.map(x => opt("ck-entrega", x.id, ck.entrega, x.name, x.detail)).join("")}
@@ -198,6 +213,7 @@
       if (!r.ok) throw new Error((data.errores || ["No pudimos enviar el pedido. Probá de nuevo o escribinos por WhatsApp."]).join(" "));
       const [, id, t] = data.seguimiento.match(/\/pedido\/(\d+)\?t=([0-9a-f]+)/);
       guardarPedido({ id, t, numero: data.numero, fecha: new Date().toISOString(), pago: ck.pago });
+      if (cuenta.cliente) refrescarCuenta();
       state.cart = {}; render();
       Object.assign(ck, { enviando: false, turnstile: "", nota: "" });
       location.hash = `pedido=${id}.${t}`;
@@ -380,6 +396,7 @@
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error((d.errores || ["No pudimos entrar. Probá de nuevo."]).join(" "));
       cuenta.cliente = d.cliente;
+      await refrescarCuenta();
       pintarBotonCuenta();
       const hola = `¡Hola${d.cliente.nombre ? ", " + d.cliente.nombre.split(" ")[0] : ""}!`;
       toast(d.sumados > 0 ? `${hola} Sumamos ${d.sumados} pedido${d.sumados === 1 ? "" : "s"} a tu cuenta.` : `${hola} Tus pedidos quedan guardados en tu cuenta.`);
@@ -421,9 +438,13 @@
     if (todo && !confirm("¿Cerrar la sesión en todos tus dispositivos?")) return;
     await conSesion(`${API}/sesion/${todo ? "cerrar-todas" : "cerrar"}`, { method: "POST" }).catch(() => {});
     try { google.accounts.id.disableAutoSelect(); } catch (_) {}
-    cuenta.cliente = null; pintarBotonCuenta(); go("home");
+    cuenta.cliente = null; Object.assign(ck, { nombre: "", telefono: "", email: "", calle: "", numero: "", piso: "", ciudad: "", cp: "", precargado: false }); pintarBotonCuenta(); go("home");
     toast("Cerraste la sesión.");
   });
+
+  async function refrescarCuenta() {
+    try { const d = await (await conSesion(`${API}/sesion`)).json(); if (d.cliente) cuenta.cliente = d.cliente; } catch (_) {}
+  }
 
   async function iniciarCuenta() {
     try {
